@@ -85,44 +85,42 @@ def main() -> int:
         command.extend(["--base-url", args.base_url, "--report-dir", str(report_dir)])
         if images_dir.exists():
             command.extend(["--images-dir", str(images_dir)])
-        if args.token:
-            command.extend(["--token", args.token])
-        else:
-            try:
-                auth_payload = ensure_login(
-                    base_url=args.base_url,
-                    identity_base_url=args.identity_base_url,
-                    requested_by="official-question-import",
-                    skill_name="official-question-import",
-                )
-            except AuthError as exc:
-                print_json(
-                    {
-                        "status": "error",
-                        "message": str(exc),
-                        "action": args.action,
-                        "workspace": str(workspace),
-                        "batch": batch.to_dict(),
-                        "auth_error": {
-                            "code": exc.code,
-                            "http_status": exc.http_status,
-                        },
-                    }
-                )
-                return 6
-            if auth_payload.get("status") != "authenticated":
-                print_json(
-                    {
-                        "status": auth_payload.get("status") or "binding_required",
-                        "message": auth_payload.get("summary") or "请先完成运营后台登录授权。",
-                        "action": args.action,
-                        "workspace": str(workspace),
-                        "batch": batch.to_dict(),
-                        "auth": auth_payload,
-                    }
-                )
-                return 5
-            command.extend(["--token", str(auth_payload.get("access_token") or "")])
+        try:
+            auth_payload = ensure_login(
+                base_url=args.base_url,
+                identity_base_url=args.identity_base_url,
+                requested_by="official-question-import",
+                skill_name="official-question-import",
+                token=args.token,
+            )
+        except AuthError as exc:
+            print_json(
+                {
+                    "status": "error",
+                    "message": str(exc),
+                    "action": args.action,
+                    "workspace": str(workspace),
+                    "batch": batch.to_dict(),
+                    "auth_error": {
+                        "code": exc.code,
+                        "http_status": exc.http_status,
+                    },
+                }
+            )
+            return 6
+        if auth_payload.get("status") != "authenticated":
+            print_json(
+                {
+                    "status": auth_payload.get("status") or "token_required",
+                    "message": auth_payload.get("summary") or "请先提供运营后台 token。",
+                    "action": args.action,
+                    "workspace": str(workspace),
+                    "batch": batch.to_dict(),
+                    "auth": auth_payload,
+                }
+            )
+            return 5
+        command.extend(["--token", str(auth_payload.get("access_token") or "")])
 
     result = subprocess.run(
         command,

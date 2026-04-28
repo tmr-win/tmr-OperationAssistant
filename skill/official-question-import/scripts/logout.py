@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 
-from auth_common import clear_local_state
+from auth_common import AuthError, clear_local_state
 from common import print_json
 
 
@@ -16,7 +16,20 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    payload = clear_local_state(base_url=args.base_url, identity_base_url=args.identity_base_url)
+    try:
+        payload = clear_local_state(base_url=args.base_url, identity_base_url=args.identity_base_url)
+    except AuthError as exc:
+        print_json(
+            {
+                "status": "error",
+                "message": str(exc),
+                "auth_error": {
+                    "code": exc.code,
+                    "http_status": exc.http_status,
+                },
+            }
+        )
+        return 1
     print_json(payload)
     return 0
 

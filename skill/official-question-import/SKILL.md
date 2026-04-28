@@ -26,8 +26,8 @@ Use this skill to run the official-question import workflow on top of a reusable
 9. When the user gives questions directly in conversation, first extract them into structured JSON, then run `scripts/run_conversation_import.py` so the flow can normalize payload, write workbook, validate, and plan in one pass.
 10. If direct conversational drafting is missing essential fields, ask the smallest possible follow-up. The minimum fields are described in `references/manual-text.md`.
 11. When the user only gives Chinese copy and clearly wants a preview batch quickly, you may draft provisional English copy for preview. Before any production submit, explicitly tell the user that the English copy was machine-drafted if they did not provide it.
-12. Submit uses local ops-admin login state instead of embedded account credentials. If login is missing or expired, run `scripts/ensure_login.py`, show the returned browser `bind_url`, and continue only after the user completes browser authorization.
-13. Treat the admin page URL and the `identity-service` URL as separate endpoints. Default to `https://admin.tmr.win/admin/questions/list` for the admin page and `https://tmr.win/identity-service` for auth APIs. Do not infer the `identity-service` host from the admin page host when the user is on production.
+12. Submit uses a locally saved ops-admin access token instead of embedded account credentials. If login is missing or expired, run `scripts/ensure_login.py`, ask the user to paste a Bearer token from the already logged-in admin page, save it locally, and then continue.
+13. Treat the admin page URL and the `identity-service` URL as separate endpoints. Default to `https://admin.tmr.win/admin/questions/list` for the admin page and `https://tmr.win/identity-service` for auth APIs.
 
 ## Workspace Flow
 
@@ -77,10 +77,10 @@ Use:
 python3 scripts/run_batch_action.py validate --workspace "~/Desktop/ops-import-tool" --query "最新一批"
 python3 scripts/run_batch_action.py plan --workspace "~/Desktop/ops-import-tool" --query "2026-04-28-market-hot-01"
 python3 scripts/run_batch_action.py submit --workspace "~/Desktop/ops-import-tool" --query "今天那批" --confirmed
-python3 scripts/run_batch_action.py submit --workspace "~/Desktop/ops-import-tool" --query "今天那批" --confirmed --identity-base-url "https://tmr.win/identity-service"
+python3 scripts/run_batch_action.py submit --workspace "~/Desktop/ops-import-tool" --query "今天那批" --confirmed --token "<TOKEN>"
 ```
 
-`submit` is protected by `--confirmed`. Do not pass it until the user has explicitly confirmed. The wrapper first checks local ops-admin login state; if authorization is required, it returns a browser `bind_url` for the user to complete login.
+`submit` is protected by `--confirmed`. Do not pass it until the user has explicitly confirmed. The wrapper first checks the local saved token; if no usable token exists, it returns a structured `token_required` result.
 
 ### Ensure Login / Logout
 
@@ -88,18 +88,27 @@ Use:
 
 ```bash
 python3 scripts/ensure_login.py
+python3 scripts/ensure_login.py --token "<TOKEN>"
 python3 scripts/ensure_login.py --force-rebind
-python3 scripts/ensure_login.py --identity-base-url "https://tmr.win/identity-service"
 python3 scripts/logout.py
 ```
 
 Behavior:
 
-- `ensure_login.py` returns `authenticated` when the local ops-admin runtime credential is usable
-- if it returns `binding_required`, show `bind_url` and ask the user only to complete the browser login step
-- after the user says the browser step is done, run the same `submit` action again; the wrapper will poll and continue automatically
-- `logout.py` clears the local imported-skill auth state and revokes the current runtime session when possible
-- if production admin and auth are on different hosts, prefer passing `--identity-base-url` explicitly instead of guessing from `--base-url`
+- `ensure_login.py` returns `authenticated` when the local ops-admin token is usable
+- if it returns `token_required`, ask the user to paste a Bearer token from the already logged-in admin page
+- after the user sends the token, run `python3 scripts/ensure_login.py --token "<TOKEN>"`, then rerun the original submit action
+- `logout.py` clears the local saved token and revokes the current runtime session when possible
+
+### Token collection
+
+When the user needs to provide a token, guide them with this exact flow:
+
+1. Ask them to log in to `https://admin.tmr.win/admin/questions/list` in the browser.
+2. Ask them to open Developer Tools and switch to `Network`.
+3. Ask them to refresh the page and open any request.
+4. Ask them to copy the `Authorization` request header value.
+5. Accept either `Bearer <TOKEN>` or just `<TOKEN>`.
 
 ### Write questions from conversation
 

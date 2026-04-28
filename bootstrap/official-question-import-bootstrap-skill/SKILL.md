@@ -107,6 +107,6 @@ Use official-question-import to initialize the workspace, prepare batches, and h
 
 - bootstrap 只负责安装、刷新、handoff
 - 不要在 bootstrap 中要求用户输入账号密码
-- 浏览器授权必须交给 runtime skill
+- token 获取与本地保存必须交给 runtime skill
 - 使用宿主标准 Skill 目录，不要发 zip，不要临时拷贝到杂散目录
 - 当正式仓库和本地 checkout 同时存在时，优先使用当前 checkout，避免把旧临时目录当成 canonical source
