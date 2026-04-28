@@ -1,0 +1,12 @@
+{
+  "name": "ops-official-question-import-tool",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "import:official-questions": "node scripts/import-official-questions.mjs"
+  },
+  "dependencies": {
+    "xlsx": "^0.18.5"
+  }
+}
