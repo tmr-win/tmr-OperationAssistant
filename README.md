@@ -4,7 +4,7 @@
 
 当前仓库分成两层：
 
-- `official-question-import`：真正执行导题、预览、校验、提交和本地 token 鉴权的 runtime skill
+- `official-question-import`：真正执行导题、预览、校验、提交和本地登录态鉴权的 runtime skill
 - `official-question-import-bootstrap-skill`：安装、刷新并 handoff 到 runtime skill 的 bootstrap skill
 
 仓库已经预留后续扩展空间，未来如需接入爬虫相关能力，可以继续在这个仓库内追加新的 runtime skill 或 references，而不需要另起一套发布方式。
@@ -45,7 +45,7 @@ bootstrap/official-question-import-bootstrap-skill/SKILL.md
 安装完成后，可以让 Agent 直接执行：
 
 ```text
-Use official-question-import to initialize a workspace, prepare batches, and handle first-run ops-admin token setup before submit.
+Use official-question-import to initialize a workspace, prepare batches, and handle first-run ops-admin login setup before submit.
 ```
 
 ## 命令行安装 Fallback
@@ -110,12 +110,12 @@ Agent 后续可以通过这些方式触发：
 
 ## 登录授权说明
 
-runtime skill 不内置账号密码，也不要求用户在对话里反复输入账号密码。
+runtime skill 不在仓库里内置账号密码，也不会保存明文密码。
 
-当用户第一次执行 `submit`，或本地 token 失效时，skill 会：
+当用户第一次执行 `submit`，或本地登录态失效时，skill 会：
 
-1. 提示用户先在浏览器登录后台
-2. 引导用户在开发者工具的 Network 里复制 `Authorization` 对应的 Bearer token
-3. 用户把 token 粘贴给 Agent 一次
-4. skill 本地校验并保存 token
-5. 后续继续原来的 submit 流程
+1. 提示用户直接提供运营后台邮箱和密码
+2. skill 调登录接口换取 access token
+3. skill 只保存登录后的 token / refresh 能力，不保存明文密码
+4. 后续自动复用本地登录态，过期时优先自动 refresh
+5. 如果用户不想提供密码，也可以退回手动粘贴 Bearer token 的兜底流程

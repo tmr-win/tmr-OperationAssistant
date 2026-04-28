@@ -6,6 +6,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from http.cookies import SimpleCookie
 from pathlib import Path
 from typing import Any
 
@@ -208,6 +209,96 @@ def request_json(
         raise AuthError("network_error", f"请求运营后台失败：{exc.reason}") from exc
 
 
+def request_json_with_headers(
+    *,
+    url: str,
+    method: str,
+    timeout_seconds: int,
+    body: dict[str, Any] | None = None,
+    access_token: str | None = None,
+) -> tuple[Any, Any]:
+    data = None
+    headers = {"Content-Type": "application/json"}
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+    if access_token:
+        headers["Authorization"] = f"Bearer {access_token}"
+
+    request = urllib.request.Request(url=url, method=method, data=data, headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+            raw_body = response.read().decode("utf-8")
+            payload = json.loads(raw_body) if raw_body else None
+            return unwrap_api_payload(payload), response.headers
+    except urllib.error.HTTPError as exc:
+        raw_body = exc.read().decode("utf-8") if exc.fp is not None else ""
+        message = f"请求失败，状态码 {exc.code}"
+        if raw_body:
+            try:
+                payload = json.loads(raw_body)
+                detail = unwrap_api_payload(payload)
+                if isinstance(detail, dict):
+                    message = str(detail.get("message") or detail.get("detail") or message)
+                elif isinstance(payload, dict):
+                    payload_detail = payload.get("detail")
+                    detail_message = payload_detail.get("message") if isinstance(payload_detail, dict) else payload_detail
+                    message = str(payload.get("message") or detail_message or message)
+            except json.JSONDecodeError:
+                message = raw_body
+        raise AuthError("http_error", message, http_status=exc.code) from exc
+    except urllib.error.URLError as exc:
+        raise AuthError("network_error", f"请求运营后台失败：{exc.reason}") from exc
+
+
+def extract_refresh_token_from_headers(headers: Any) -> str | None:
+    cookie_headers = []
+    if hasattr(headers, "get_all"):
+        cookie_headers = headers.get_all("Set-Cookie") or []
+    elif isinstance(headers, dict):
+        cookie_value = headers.get("Set-Cookie") or headers.get("set-cookie")
+        if isinstance(cookie_value, list):
+            cookie_headers = cookie_value
+        elif cookie_value:
+            cookie_headers = [cookie_value]
+
+    fallback_token = None
+    for header in cookie_headers:
+        cookie = SimpleCookie()
+        try:
+            cookie.load(header)
+        except Exception:
+            continue
+        for key, morsel in cookie.items():
+            if not morsel.value:
+                continue
+            if key == "tmr_ops_refresh":
+                return morsel.value
+            if fallback_token is None:
+                fallback_token = morsel.value
+    return fallback_token
+
+
+def login_ops_admin_password(config: AuthConfig, *, email: str, password: str) -> dict[str, Any]:
+    normalized_email = normalize_text(email)
+    if not normalized_email or not password:
+        raise AuthError("missing_credentials", "请同时提供运营后台邮箱和密码")
+    try:
+        payload, headers = request_json_with_headers(
+            url=f"{config.identity_base_url}/api/v1/auth/ops-admin/password/login",
+            method="POST",
+            timeout_seconds=config.timeout_seconds,
+            body={"email": normalized_email, "password": password},
+        )
+    except AuthError as exc:
+        if exc.http_status == 401:
+            raise AuthError("invalid_credentials", "运营后台账号或密码错误", http_status=401) from exc
+        raise
+    if not isinstance(payload, dict) or not payload.get("access_token"):
+        raise AuthError("invalid_response", "运营后台登录成功，但未返回 access_token")
+    payload["refresh_token"] = extract_refresh_token_from_headers(headers)
+    return payload
+
+
 def refresh_ops_admin_session(config: AuthConfig, *, refresh_token: str) -> dict[str, Any]:
     payload = request_json(
         url=f"{config.identity_base_url}/api/v1/auth/ops-admin/token/refresh",
@@ -254,25 +345,27 @@ def build_authenticated_payload(credentials: dict[str, Any], *, summary: str = "
         "email": credentials.get("email"),
         "display_name": credentials.get("display_name"),
         "updated_at": credentials.get("updated_at"),
+        "auth_mode": credentials.get("auth_mode"),
         "summary": summary,
     }
 
 
-def build_token_required_payload(config: AuthConfig, *, message: str | None = None) -> dict[str, Any]:
+def build_credentials_required_payload(config: AuthConfig, *, message: str | None = None) -> dict[str, Any]:
     payload = {
-        "status": "token_required",
+        "status": "credentials_required",
         "base_url": config.base_url,
         "identity_base_url": config.identity_base_url,
-        "summary": "需要先提供运营后台 access token",
-        "token_hint": "支持直接粘贴 Bearer token，也支持只粘贴 token 本体。",
+        "summary": "需要先提供运营后台账号密码",
+        "credential_hint": "请直接发送邮箱和密码；skill 不会保存明文密码，只会保存登录后的 token。",
+        "fields": ["email", "password"],
         "steps": [
-            f"1. 先在浏览器登录运营后台：{config.base_url}",
-            "2. 打开浏览器开发者工具，切到 Network。",
-            "3. 刷新题目列表页面，点开任意一个请求。",
-            "4. 在 Request Headers 里复制 Authorization 对应的 Bearer token。",
-            '5. 回到 Agent，直接发送：保存这个 token：Bearer <你的 token>。',
+            "1. 直接把运营后台邮箱和密码发给 Agent。",
+            "2. Skill 会调用运营后台登录接口换取 access token。",
+            "3. 登录成功后只会保存 token，不会保存明文密码。",
+            "4. 如果你不想提供密码，也可以改用手动粘贴 Bearer token 的兜底方式。",
         ],
-        "suggested_command": 'python3 scripts/ensure_login.py --token "<TOKEN>"',
+        "suggested_command": 'python3 scripts/ensure_login.py --email "<邮箱>" --password "<密码>"',
+        "token_fallback_command": 'python3 scripts/ensure_login.py --token "<TOKEN>"',
     }
     if message:
         payload["message"] = message
@@ -284,31 +377,37 @@ def save_access_token(
     *,
     access_token: str,
     refresh_token: str | None = None,
+    expires_at: str | None = None,
+    auth_mode: str = "manual_token",
+    summary: str = "已保存运营后台 token",
+    user_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     normalized_access_token = normalize_access_token(access_token)
     if not normalized_access_token:
         raise AuthError("invalid_token", "未提供有效的 access token")
-    try:
-        me = get_ops_admin_me(config, access_token=normalized_access_token)
-    except AuthError as exc:
-        if exc.http_status == 401:
-            raise AuthError("invalid_token", "提供的 access token 无效或已过期", http_status=401) from exc
-        raise
+    me = user_payload
+    if me is None:
+        try:
+            me = get_ops_admin_me(config, access_token=normalized_access_token)
+        except AuthError as exc:
+            if exc.http_status == 401:
+                raise AuthError("invalid_token", "提供的 access token 无效或已过期", http_status=401) from exc
+            raise
     credentials = {
         "base_url": config.base_url,
         "identity_base_url": config.identity_base_url,
         "access_token": normalized_access_token,
         "refresh_token": normalize_text(refresh_token) or None,
-        "expires_at": None,
-        "user_id": me.get("user_id"),
-        "email": me.get("email"),
-        "display_name": me.get("display_name"),
+        "expires_at": normalize_text(expires_at) or None,
+        "user_id": me.get("user_id") if isinstance(me, dict) else None,
+        "email": me.get("email") if isinstance(me, dict) else None,
+        "display_name": me.get("display_name") if isinstance(me, dict) else None,
         "updated_at": utc_now().isoformat(),
-        "auth_mode": "manual_token",
+        "auth_mode": auth_mode,
     }
     save_credentials(credentials)
     clear_pending_bind()
-    return build_authenticated_payload(credentials, summary="已保存运营后台 token")
+    return build_authenticated_payload(credentials, summary=summary)
 
 
 def ensure_login(
@@ -319,6 +418,8 @@ def ensure_login(
     skill_name: str = "official-question-import",
     force_rebind: bool = False,
     token: str | None = None,
+    email: str | None = None,
+    password: str | None = None,
     refresh_token: str | None = None,
 ) -> dict[str, Any]:
     del requested_by, skill_name
@@ -329,6 +430,26 @@ def ensure_login(
 
     if normalize_access_token(token):
         return save_access_token(config, access_token=str(token or ""), refresh_token=refresh_token)
+
+    normalized_email = normalize_text(email)
+    normalized_password = password or ""
+    if normalized_email or normalized_password:
+        if not normalized_email or not normalized_password:
+            return build_credentials_required_payload(config, message="请同时提供运营后台邮箱和密码。")
+        session_payload = login_ops_admin_password(
+            config,
+            email=normalized_email,
+            password=normalized_password,
+        )
+        return save_access_token(
+            config,
+            access_token=str(session_payload.get("access_token") or ""),
+            refresh_token=str(session_payload.get("refresh_token") or ""),
+            expires_at=str(session_payload.get("expires_at") or ""),
+            auth_mode="password_login",
+            summary="已用账号密码登录运营后台",
+            user_payload=session_payload.get("user") if isinstance(session_payload.get("user"), dict) else None,
+        )
 
     credentials = load_credentials()
     if credentials is not None:
@@ -358,6 +479,9 @@ def ensure_login(
                     config,
                     access_token=str(refreshed.get("access_token") or ""),
                     refresh_token=str(refreshed.get("refresh_token") or saved_refresh_token),
+                    expires_at=str(refreshed.get("expires_at") or ""),
+                    auth_mode=str(credentials.get("auth_mode") or "password_login"),
+                    summary="已刷新运营后台登录态",
                 )
             except AuthError as exc:
                 if exc.http_status not in {None, 401}:
@@ -365,7 +489,7 @@ def ensure_login(
         clear_credentials()
 
     clear_pending_bind()
-    return build_token_required_payload(config, message="当前本地没有可用的运营后台 token。")
+    return build_credentials_required_payload(config, message="当前本地没有可用的运营后台登录态。")
 
 
 def clear_local_state(base_url: str | None = None, identity_base_url: str | None = None) -> dict[str, Any]:

@@ -31,6 +31,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-url", default=DEFAULT_OPS_ADMIN_BASE_URL)
     parser.add_argument("--identity-base-url", default=DEFAULT_IDENTITY_BASE_URL)
     parser.add_argument("--token", default="")
+    parser.add_argument("--email", default="")
+    parser.add_argument("--password", default="")
     parser.add_argument("--confirmed", action="store_true")
     return parser.parse_args()
 
@@ -92,6 +94,8 @@ def main() -> int:
                 requested_by="official-question-import",
                 skill_name="official-question-import",
                 token=args.token,
+                email=args.email,
+                password=args.password,
             )
         except AuthError as exc:
             print_json(
@@ -111,8 +115,8 @@ def main() -> int:
         if auth_payload.get("status") != "authenticated":
             print_json(
                 {
-                    "status": auth_payload.get("status") or "token_required",
-                    "message": auth_payload.get("summary") or "请先提供运营后台 token。",
+                    "status": auth_payload.get("status") or "credentials_required",
+                    "message": auth_payload.get("summary") or "请先提供运营后台账号密码。",
                     "action": args.action,
                     "workspace": str(workspace),
                     "batch": batch.to_dict(),

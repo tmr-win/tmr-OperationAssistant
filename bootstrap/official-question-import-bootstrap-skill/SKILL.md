@@ -95,18 +95,18 @@ test -d <target>/references
 当 `runtime_ready` 后，继续使用：
 
 ```text
-Use official-question-import to initialize the workspace, prepare batches, and handle first-run ops-admin browser authorization before submit.
+Use official-question-import to initialize the workspace, prepare batches, and handle first-run ops-admin login setup before submit.
 ```
 
 如果用户没有给出更细的任务，默认 handoff 目标是：
 
 - 初始化或定位导题工作目录
-- 当第一次 `submit` 需要授权时，走浏览器登录授权流程
+- 当第一次 `submit` 需要登录时，优先引导用户输入运营后台邮箱和密码，再由 runtime skill 直连登录接口
 
 ## Guidance
 
 - bootstrap 只负责安装、刷新、handoff
-- 不要在 bootstrap 中要求用户输入账号密码
+- 不要在 bootstrap 中要求用户输入账号密码；如果登录态缺失，把这个动作交给 runtime skill
 - token 获取与本地保存必须交给 runtime skill
 - 使用宿主标准 Skill 目录，不要发 zip，不要临时拷贝到杂散目录
 - 当正式仓库和本地 checkout 同时存在时，优先使用当前 checkout，避免把旧临时目录当成 canonical source

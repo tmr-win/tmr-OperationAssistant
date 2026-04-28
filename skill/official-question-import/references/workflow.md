@@ -22,7 +22,8 @@ Current implemented workflow:
 
 - Default admin page URL: `https://admin.tmr.win/admin/questions/list`
 - Default identity-service URL: `https://tmr.win/identity-service`
-- Default login flow: the skill asks for a Bearer token copied from the already logged-in admin page and saves it locally
+- Default login flow: the skill first asks for ops-admin email and password, exchanges them for a token, and saves only the resulting token locally
+- Token paste from the already logged-in admin page remains available as a fallback when the user does not want to share a password
 - The submit wrapper may still override URL or pass an explicit token when the user explicitly asks for another environment
 - URL normalization must accept admin page URLs such as `/admin/questions/list` and convert them to the gateway root automatically for submit traffic only
 - Auth traffic must use the explicit `identity-service` URL and must not assume it shares the same host as the admin page

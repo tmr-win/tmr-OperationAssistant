@@ -55,8 +55,8 @@ function printUsage() {
 选项：
   --base-url <地址>                  后台域名、网关根地址或 /admin/questions/list 页面地址；脚本会自动识别
   --token <令牌>                     运营后台 Bearer Token；也可通过环境变量 OPS_ADMIN_ACCESS_TOKEN 传入
-  --email <邮箱>                     兼容旧流程的账号参数；runtime skill 默认改走本地 token 复用
-  --password <密码>                  兼容旧流程的密码参数；runtime skill 默认改走本地 token 复用
+  --email <邮箱>                     兼容旧流程的账号参数；runtime skill 默认优先走账号密码登录
+  --password <密码>                  兼容旧流程的密码参数；runtime skill 默认优先走账号密码登录
   --images-dir <目录>                图片目录；需要配合“图片文件名”列使用
   --report-dir <目录>                报告输出目录，默认 ${DEFAULT_REPORT_DIR}
   --default-category <值>            默认分类

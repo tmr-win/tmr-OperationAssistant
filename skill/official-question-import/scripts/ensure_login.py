@@ -12,6 +12,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-url", default="")
     parser.add_argument("--identity-base-url", default="")
     parser.add_argument("--token", default="")
+    parser.add_argument("--email", default="")
+    parser.add_argument("--password", default="")
     parser.add_argument("--requested-by", default="official-question-import")
     parser.add_argument("--skill-name", default="official-question-import")
     parser.add_argument("--force-rebind", action="store_true")
@@ -28,6 +30,8 @@ def main() -> int:
             skill_name=args.skill_name,
             force_rebind=args.force_rebind,
             token=args.token,
+            email=args.email,
+            password=args.password,
         )
     except AuthError as exc:
         print_json(
@@ -44,7 +48,7 @@ def main() -> int:
     print_json(payload)
     if payload.get("status") == "authenticated":
         return 0
-    if payload.get("status") == "token_required":
+    if payload.get("status") == "credentials_required":
         return 2
     return 1
 
