@@ -10,12 +10,13 @@ from common import print_json
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="清理 official-question-import 的本地运营后台登录态。")
     parser.add_argument("--base-url", default="")
+    parser.add_argument("--identity-base-url", default="")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    payload = clear_local_state(base_url=args.base_url)
+    payload = clear_local_state(base_url=args.base_url, identity_base_url=args.identity_base_url)
     print_json(payload)
     return 0
 

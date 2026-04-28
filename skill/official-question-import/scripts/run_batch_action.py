@@ -5,7 +5,12 @@ import argparse
 import subprocess
 from pathlib import Path
 
-from auth_common import AuthError, DEFAULT_OPS_ADMIN_BASE_URL, ensure_login
+from auth_common import (
+    AuthError,
+    DEFAULT_IDENTITY_BASE_URL,
+    DEFAULT_OPS_ADMIN_BASE_URL,
+    ensure_login,
+)
 from common import (
     BATCH_DIR_NAME,
     IMAGES_DIR_NAME,
@@ -24,6 +29,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workspace")
     parser.add_argument("--query")
     parser.add_argument("--base-url", default=DEFAULT_OPS_ADMIN_BASE_URL)
+    parser.add_argument("--identity-base-url", default=DEFAULT_IDENTITY_BASE_URL)
     parser.add_argument("--token", default="")
     parser.add_argument("--confirmed", action="store_true")
     return parser.parse_args()
@@ -85,6 +91,7 @@ def main() -> int:
             try:
                 auth_payload = ensure_login(
                     base_url=args.base_url,
+                    identity_base_url=args.identity_base_url,
                     requested_by="official-question-import",
                     skill_name="official-question-import",
                 )

@@ -21,9 +21,11 @@ Current implemented workflow:
 ## Default Submit Target
 
 - Default admin page URL: `https://admin.tmr.win/admin/questions/list`
+- Default identity-service URL: `https://tmr.win/identity-service`
 - Default login flow: the skill creates a browser authorization session and waits for the user to complete login in the admin page
 - The submit wrapper may still override URL or pass an explicit token when the user explicitly asks for another environment
-- URL normalization must accept admin page URLs such as `/admin/questions/list` and convert them to the gateway root automatically
+- URL normalization must accept admin page URLs such as `/admin/questions/list` and convert them to the gateway root automatically for submit traffic only
+- Auth traffic must use the explicit `identity-service` URL and must not assume it shares the same host as the admin page
 - Local auth state is stored outside the repository and reused across submit actions until it expires or is cleared
 
 ## Batch Naming

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_OPS_ADMIN_BASE_URL = "https://admin.tmr.win/admin/questions/list"
+DEFAULT_IDENTITY_BASE_URL = "https://tmr.win/identity-service"
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 30
 STATE_DIR = Path.home() / ".official-question-import-skill"
 CREDENTIALS_PATH = STATE_DIR / "credentials.json"
@@ -70,15 +71,48 @@ def resolve_gateway_root_url(base_url: str | None) -> str:
         return normalized.rstrip("/").replace("/intention-market", "")
 
 
-def build_config(base_url: str | None = None) -> AuthConfig:
+def resolve_identity_base_url(identity_base_url: str | None) -> str:
+    normalized = normalize_text(identity_base_url)
+    if not normalized:
+        return ""
+    if "://" not in normalized:
+        trimmed = normalized.rstrip("/")
+        identity_index = trimmed.find("/identity-service")
+        if identity_index >= 0:
+            return trimmed[: identity_index + len("/identity-service")]
+        return f"{trimmed}/identity-service"
+    try:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(normalized)
+        pathname = parsed.path.rstrip("/")
+        identity_index = pathname.find("/identity-service")
+        if identity_index >= 0:
+            pathname = pathname[: identity_index + len("/identity-service")]
+        elif pathname == "/":
+            pathname = "/identity-service"
+        else:
+            pathname = f"{pathname}/identity-service"
+        return f"{parsed.scheme}://{parsed.netloc}{pathname}"
+    except Exception:
+        trimmed = normalized.rstrip("/")
+        if "/identity-service" in trimmed:
+            return trimmed.split("/identity-service", 1)[0] + "/identity-service"
+        return f"{trimmed}/identity-service"
+
+
+def build_config(base_url: str | None = None, identity_base_url: str | None = None) -> AuthConfig:
     effective_base_url = normalize_text(base_url) or DEFAULT_OPS_ADMIN_BASE_URL
     gateway_root_url = resolve_gateway_root_url(effective_base_url)
+    effective_identity_base_url = resolve_identity_base_url(identity_base_url) or DEFAULT_IDENTITY_BASE_URL
     if not gateway_root_url:
         raise AuthError("invalid_base_url", "未提供可用的运营后台地址")
+    if not effective_identity_base_url:
+        raise AuthError("invalid_identity_base_url", "未提供可用的 identity-service 地址")
     return AuthConfig(
         base_url=effective_base_url,
         gateway_root_url=gateway_root_url,
-        identity_base_url=f"{gateway_root_url}/identity-service",
+        identity_base_url=effective_identity_base_url,
     )
 
 
@@ -191,6 +225,7 @@ def create_ops_admin_bind_session(config: AuthConfig, *, requested_by: str, skil
         raise AuthError("invalid_response", "创建运营后台授权会话失败：返回结果不完整")
     pending = {
         "base_url": config.base_url,
+        "identity_base_url": config.identity_base_url,
         "session_id": payload.get("session_id"),
         "session_token": payload.get("session_token"),
         "poll_token": payload.get("poll_token"),
@@ -265,6 +300,7 @@ def build_authenticated_payload(credentials: dict[str, Any]) -> dict[str, Any]:
     return {
         "status": "authenticated",
         "base_url": credentials.get("base_url"),
+        "identity_base_url": credentials.get("identity_base_url"),
         "access_token": credentials.get("access_token"),
         "refresh_token": credentials.get("refresh_token"),
         "expires_at": credentials.get("expires_at"),
@@ -280,6 +316,7 @@ def build_binding_required_payload(pending: dict[str, Any], *, message: str | No
     payload = {
         "status": "binding_required",
         "base_url": pending.get("base_url"),
+        "identity_base_url": pending.get("identity_base_url"),
         "session_id": pending.get("session_id"),
         "bind_url": pending.get("bind_url"),
         "expires_at": pending.get("expires_at"),
@@ -293,11 +330,12 @@ def build_binding_required_payload(pending: dict[str, Any], *, message: str | No
 def ensure_login(
     *,
     base_url: str | None = None,
+    identity_base_url: str | None = None,
     requested_by: str = "official-question-import",
     skill_name: str = "official-question-import",
     force_rebind: bool = False,
 ) -> dict[str, Any]:
-    config = build_config(base_url)
+    config = build_config(base_url, identity_base_url)
     if force_rebind:
         clear_credentials()
         clear_pending_bind()
@@ -312,6 +350,7 @@ def ensure_login(
                 credentials["display_name"] = me.get("display_name")
                 credentials["updated_at"] = utc_now().isoformat()
                 credentials["base_url"] = config.base_url
+                credentials["identity_base_url"] = config.identity_base_url
                 save_credentials(credentials)
                 return build_authenticated_payload(credentials)
             except AuthError as exc:
@@ -324,6 +363,7 @@ def ensure_login(
                 me = get_ops_admin_me(config, access_token=str(refreshed.get("access_token") or ""))
                 refreshed_credentials = {
                     "base_url": config.base_url,
+                    "identity_base_url": config.identity_base_url,
                     "access_token": refreshed.get("access_token"),
                     "refresh_token": refreshed.get("refresh_token") or refresh_token,
                     "expires_at": refreshed.get("expires_at"),
@@ -341,7 +381,10 @@ def ensure_login(
 
     pending = load_pending_bind()
     if pending and normalize_text(str(pending.get("poll_token") or "")):
-        pending_config = build_config(str(pending.get("base_url") or config.base_url))
+        pending_config = build_config(
+            str(pending.get("base_url") or config.base_url),
+            str(pending.get("identity_base_url") or config.identity_base_url),
+        )
         try:
             polled = poll_ops_admin_bind_session(
                 pending_config,
@@ -365,6 +408,7 @@ def ensure_login(
             detail = polled.get("detail") if isinstance(polled.get("detail"), dict) else {}
             new_credentials = {
                 "base_url": pending_config.base_url,
+                "identity_base_url": pending_config.identity_base_url,
                 "access_token": polled.get("access_token"),
                 "refresh_token": polled.get("refresh_token"),
                 "expires_at": polled.get("access_token_expires_at"),
@@ -401,8 +445,8 @@ def ensure_login(
     return build_binding_required_payload(pending)
 
 
-def clear_local_state(base_url: str | None = None) -> dict[str, Any]:
-    config = build_config(base_url)
+def clear_local_state(base_url: str | None = None, identity_base_url: str | None = None) -> dict[str, Any]:
+    config = build_config(base_url, identity_base_url)
     credentials = load_credentials()
     if credentials and credentials.get("access_token"):
         try:
