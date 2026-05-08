@@ -12,6 +12,15 @@ Current implemented workflow:
 6. Confirm before submit
 7. Submit and inspect the report
 
+For existing-batch rewrite:
+
+1. Resolve the target batch
+2. Export current workbook JSON
+3. Rewrite the JSON according to the user's tone / fix request
+4. Preview a diff
+5. Confirm before overwriting the workbook
+6. Re-run validate and plan
+
 ## Default Workspace
 
 - Default: `~/Desktop/ops-import-tool`

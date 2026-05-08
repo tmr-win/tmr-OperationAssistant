@@ -1,6 +1,6 @@
 ---
 name: official-question-import
-description: Use this skill when研发、运营支持或会用 Codex 的运营需要初始化官方题导题工作目录、创建导题批次、把对话里的题目整理后写入 questions.xlsx、校验 Excel/CSV、预览导题计划、检查图片和表格是否匹配，或将批次提交到测试/生产环境。 This skill supports explicit batch names and fuzzy requests like “最新一批”“今天那批”“市场热点那批”. It defaults to initializing the tool under ~/Desktop/ops-import-tool but allows custom directories. Production submit must never run immediately: always summarize the target batch first and wait for an explicit confirmation such as “确认提交”.
+description: Use this skill when研发、运营支持或会用 Codex 的运营需要初始化官方题导题工作目录、创建导题批次、把对话里的题目整理后写入 questions.xlsx、批量改写现有批次文案、校验 Excel/CSV、预览导题计划、检查图片和表格是否匹配，或将批次提交到测试/生产环境。 This skill supports explicit batch names and fuzzy requests like “最新一批”“今天那批”“市场热点那批”, and it can rewrite an existing batch in a more口语化 / personal style before re-validating it. It defaults to initializing the tool under ~/Desktop/ops-import-tool but allows custom directories. Production submit must never run immediately: always summarize the target batch first and wait for an explicit confirmation such as “确认提交”.
 ---
 
 # Official Question Import
@@ -28,6 +28,7 @@ Use this skill to run the official-question import workflow on top of a reusable
 11. When the user only gives Chinese copy and clearly wants a preview batch quickly, you may draft provisional English copy for preview. Before any production submit, explicitly tell the user that the English copy was machine-drafted if they did not provide it.
 12. Submit prefers a locally saved ops-admin login state. If login is missing or expired, run `scripts/ensure_login.py`, ask the user for ops-admin email and password, let the script exchange them for a token, save only the resulting token locally, and then continue. If the user does not want to provide a password, fall back to pasted Bearer token mode.
 13. Treat the admin page URL and the `identity-service` URL as separate endpoints. Default to `https://admin.tmr.win/admin/questions/list` for the admin page and `https://tmr.win/identity-service` for auth APIs.
+14. When the user asks to “改口语一点”“像我自己写的”“改现有这批题”, do not ask them to rewrite each row manually. Export the current batch JSON, rewrite it in memory, preview a diff, and only then write it back.
 
 ## Workspace Flow
 
@@ -68,6 +69,23 @@ python3 scripts/resolve_batch.py --workspace "~/Desktop/ops-import-tool" --query
 ```
 
 The script returns structured JSON. If it returns `ambiguous`, ask the user to choose a candidate.
+
+### Export / Diff for rewrite
+
+Use:
+
+```bash
+python3 scripts/export_batch_to_json.py --workspace "~/Desktop/ops-import-tool" --query "今天那批" --output-json-file "/tmp/current-batch.json"
+python3 scripts/preview_batch_diff.py --workspace "~/Desktop/ops-import-tool" --query "今天那批" --json-file "/tmp/rewritten-batch.json"
+python3 scripts/preview_batch_diff.py --workspace "~/Desktop/ops-import-tool" --query "今天那批" --json-file "/tmp/rewritten-batch.json" --preview-all
+```
+
+Behavior:
+
+- `export_batch_to_json.py` exports the current batch workbook into the same JSON shape used by `manual_text`
+- the Agent should edit that JSON directly according to the user's rewrite intent
+- `preview_batch_diff.py` shows which rows and fields changed before any workbook write
+- after the user confirms the diff, apply the rewritten JSON with `scripts/run_conversation_import.py --query ... --mode replace`
 
 ### Validate / Plan / Submit
 
@@ -187,6 +205,26 @@ Do this order:
 6. Show a concise summary by default.
 7. Only run `submit` after an explicit confirmation for the target environment.
 
+### Existing batch rewrite
+
+When the user says things like:
+
+- “把今天这批题都改口语一点”
+- “这批标题太官方了，像我自己写的那种”
+- “第 3 题和第 5 题重写一下”
+- “英文也顺一下，别太像机翻”
+
+Do this order:
+
+1. Resolve the target batch.
+2. Run `scripts/export_batch_to_json.py`.
+3. Rewrite the exported JSON in memory based on the user's instruction.
+4. Run `scripts/preview_batch_diff.py`.
+5. Summarize the changed rows and changed fields.
+6. Wait for explicit confirmation before writing back.
+7. Apply the rewritten JSON with `scripts/run_conversation_import.py --query ... --mode replace`.
+8. Return the refreshed validate / plan result.
+
 ## Current Scope
 
 Implemented now:
@@ -209,4 +247,5 @@ Reserved for later:
 - `references/manual-text.md`: structured JSON shape and minimum fields for direct conversational drafting
 - `references/conversation-drafting.md`: extraction heuristics, follow-up rules, and preview policy for natural-language drafting
 - `references/confirmation-rules.md`: what must be confirmed before write actions
+- `references/batch-rewrite.md`: export / diff / rewrite workflow for modifying an existing batch
 - `references/crawler-extension.md`: reserved extension design for future crawler integration

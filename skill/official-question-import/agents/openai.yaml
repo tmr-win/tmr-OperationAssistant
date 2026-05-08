@@ -1,7 +1,7 @@
 interface:
   display_name: "Official Question Import"
-  short_description: "初始化、对话写题、预校验、预览并安全提交官方题批次，提交前自动处理运营后台登录"
-  default_prompt: "Use $official-question-import to initialize a workspace, turn conversation into official-question batches, preview them safely, and only submit after confirmation. When submit needs ops-admin access, first ask for ops-admin email and password, exchange them for a token, and fall back to pasted Bearer token only if the user does not want to share a password."
+  short_description: "初始化、对话写题、批量改写现有批次、预校验、预览并安全提交官方题批次"
+  default_prompt: "Use $official-question-import to initialize a workspace, turn conversation into official-question batches, rewrite existing batches in a more natural personal style when asked, preview diffs before overwriting any workbook, and only submit after confirmation. When submit needs ops-admin access, first ask for ops-admin email and password, exchange them for a token, and fall back to pasted Bearer token only if the user does not want to share a password."
 
 policy:
   allow_implicit_invocation: true
