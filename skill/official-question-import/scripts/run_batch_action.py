@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from common import (
     IMAGES_DIR_NAME,
     QUESTIONS_FILE_NAME,
     REPORT_DIR_NAME,
+    TOOL_TEMPLATE_DIR,
     print_json,
     resolve_batch_candidate,
     resolve_workspace,
@@ -37,6 +39,15 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def ensure_runtime_submit_script(workspace: Path) -> None:
+    source = TOOL_TEMPLATE_DIR / "scripts" / "import-official-questions.mjs"
+    if not source.exists():
+        raise FileNotFoundError(f"未找到提交脚本模板：{source}")
+    target = workspace / "scripts" / source.name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target)
+
+
 def main() -> int:
     args = parse_args()
     workspace = resolve_workspace(args.workspace, require_exists=True)
@@ -45,6 +56,11 @@ def main() -> int:
         return 1
 
     write_last_workspace(workspace)
+    try:
+        ensure_runtime_submit_script(workspace)
+    except FileNotFoundError as exc:
+        print_json({"status": "error", "message": str(exc)})
+        return 1
 
     status, candidates = resolve_batch_candidate(workspace, args.query)
     if status == "ambiguous":

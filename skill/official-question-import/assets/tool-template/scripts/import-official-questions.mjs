@@ -15,6 +15,11 @@ const MAX_BATCH_SIZE = 200;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_NAIVE_TIMEZONE_OFFSET = "+08:00";
 const DEFAULT_OPS_ADMIN_BASE_URL = "https://admin.tmr.win/admin/questions/list";
+const DEFAULT_SUBMIT_CONCURRENCY = 6;
+const DUPLICATE_ERROR_CODES = new Set([
+  "OFFICIAL_QUESTION_DUPLICATE_SAME_DAY",
+  "OFFICIAL_QUESTION_PENDING_REVEAL_EXISTS",
+]);
 
 const HEADER_ALIASES = {
   candidateQuestionId: ["候选题ID", "候选题目ID", "candidatequestionid"],
@@ -65,6 +70,7 @@ function printUsage() {
   --default-scheduled-publish-at <时间>
                                     默认定时发布时间
   --batch-id-prefix <前缀>           提交时的 batch_id 前缀，默认 ops-import
+  --submit-concurrency <数量>       submit 时并发提交题目数，默认 ${DEFAULT_SUBMIT_CONCURRENCY}
   --timeout-ms <毫秒>                请求超时，默认 ${DEFAULT_TIMEOUT_MS}
   --help                            查看帮助
 `);
@@ -111,6 +117,7 @@ function parseArgs(argv) {
     defaultAnnounceAt: "",
     defaultScheduledPublishAt: "",
     batchIdPrefix: "ops-import",
+    submitConcurrency: DEFAULT_SUBMIT_CONCURRENCY,
     timeoutMs: DEFAULT_TIMEOUT_MS,
   };
 
@@ -156,6 +163,12 @@ function parseArgs(argv) {
         break;
       case "--batch-id-prefix":
         options.batchIdPrefix = value;
+        break;
+      case "--submit-concurrency":
+        options.submitConcurrency = Number(value);
+        if (!Number.isInteger(options.submitConcurrency) || options.submitConcurrency <= 0) {
+          throw new Error("submit-concurrency 必须是正整数");
+        }
         break;
       case "--timeout-ms":
         options.timeoutMs = Number(value);
@@ -994,6 +1007,54 @@ function buildReportRecord(baseRecord) {
   };
 }
 
+function normalizeSubmitRecord(resultItem, fallbackMatch, sourceItem, responseItems) {
+  const record = buildReportRecord(sourceItem);
+  if (!resultItem) {
+    record.action = "receipt_incomplete";
+    record.import_error = "missing_batch_result";
+    record.import_message = `后台已收到该题提交请求，但单题回执不完整，未继续自动猜测是否已入库。${summarizeBatchResultIds(responseItems)}`;
+    return record;
+  }
+
+  const rawAction = normalizeText(resultItem.action || "failed").toLowerCase();
+  const importError = fallbackMatch?.importError || resultItem.error_code || null;
+  let action = rawAction || "failed";
+  if (action === "failed" && DUPLICATE_ERROR_CODES.has(importError || "")) {
+    action = "duplicate";
+  }
+
+  record.action = action;
+  record.question_id = resultItem.question_id || null;
+  record.import_message = fallbackMatch?.importMessage || resultItem.message || null;
+  record.import_error = importError;
+  record.official_question_id = resultItem.official_question_id || record.official_question_id;
+  return record;
+}
+
+function updateSummaryByRecord(summary, record) {
+  if (record.action === "inserted") {
+    summary.inserted += 1;
+    return;
+  }
+  if (record.action === "updated") {
+    summary.updated += 1;
+    return;
+  }
+  if (record.action === "skipped") {
+    summary.skipped += 1;
+    return;
+  }
+  if (record.action === "duplicate") {
+    summary.duplicate += 1;
+    return;
+  }
+  if (record.action === "receipt_incomplete") {
+    summary.receipt_incomplete += 1;
+    return;
+  }
+  summary.failed += 1;
+}
+
 function normalizeOfficialQuestionId(value) {
   return String(value || "").trim();
 }
@@ -1097,6 +1158,8 @@ async function writeReport(reportDir, report) {
     `- 插入：${report.summary.inserted}`,
     `- 更新：${report.summary.updated}`,
     `- 跳过：${report.summary.skipped}`,
+    `- 重复未提交：${report.summary.duplicate}`,
+    `- 回执不完整：${report.summary.receipt_incomplete}`,
     `- 失败：${report.summary.failed}`,
     `- 图片上传成功：${report.summary.image_uploaded}`,
     `- 图片上传失败：${report.summary.image_failed}`,
@@ -1128,6 +1191,69 @@ async function ensureImagePath(imagePath) {
   }
 }
 
+async function submitSingleQuestion({
+  sourceItem,
+  itemIndex,
+  totalCount,
+  resolvedBaseUrl,
+  accessToken,
+  options,
+}) {
+  const batchId = `${options.batchIdPrefix}-${Date.now()}-${itemIndex + 1}`;
+  console.log(`开始提交第 ${itemIndex + 1}/${totalCount} 题：第 ${sourceItem.rowNumber} 行《${sourceItem.title}》`);
+
+  try {
+    const response = await requestJson({
+      url: `${resolvedBaseUrl}/api/v1/admin/market-questions/official/batch-upsert`,
+      method: "POST",
+      token: accessToken,
+      timeoutMs: options.timeoutMs,
+      body: {
+        batch_id: batchId,
+        questions: [sourceItem.payload],
+      },
+    });
+
+    const responseItems = Array.isArray(response?.items) ? response.items : [];
+    const matchedResultItem = consumeBatchResultItem(
+      buildBatchResultItemMap(responseItems),
+      sourceItem.officialQuestionId,
+    );
+    const fallbackMatch = matchedResultItem
+      ? null
+      : resolveFallbackBatchResultItem([sourceItem], responseItems, sourceItem);
+    const resultItem = matchedResultItem || fallbackMatch?.resultItem || null;
+    const record = normalizeSubmitRecord(resultItem, fallbackMatch, sourceItem, responseItems);
+
+    if (record.question_id && sourceItem.imageFileName && options.imagesDir) {
+      if (!(await ensureImagePath(sourceItem.imagePath))) {
+        record.image_message = `图片不存在：${sourceItem.imagePath}`;
+      } else {
+        try {
+          await uploadImage({
+            url: `${resolvedBaseUrl}/api/v1/admin/crawler-questions/${record.question_id}/image`,
+            token: accessToken,
+            imagePath: sourceItem.imagePath,
+            timeoutMs: options.timeoutMs,
+          });
+          record.image_uploaded = true;
+          record.image_message = "上传成功";
+        } catch (error) {
+          record.image_message = error.message;
+        }
+      }
+    }
+
+    return record;
+  } catch (error) {
+    const record = buildReportRecord(sourceItem);
+    record.action = "failed";
+    record.import_error = "submit_request_failed";
+    record.import_message = error instanceof Error ? error.message : String(error);
+    return record;
+  }
+}
+
 async function runSubmit(preparedRows, options) {
   const gatewayRootUrl = resolveGatewayRootUrl(options.baseUrl);
   const resolvedBaseUrl = resolveBaseUrl(options.baseUrl);
@@ -1148,93 +1274,49 @@ async function runSubmit(preparedRows, options) {
     console.log(`已使用账号 ${maskEmail(options.email)} 自动获取访问令牌`);
   }
 
-  const batches = chunkArray(preparedRows, MAX_BATCH_SIZE);
   const items = [];
   const summary = {
     total: preparedRows.length,
     inserted: 0,
     updated: 0,
     skipped: 0,
+    duplicate: 0,
+    receipt_incomplete: 0,
     failed: 0,
     image_uploaded: 0,
     image_failed: 0,
   };
 
-  for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
-    const batch = batches[batchIndex];
-    const batchId = `${options.batchIdPrefix}-${Date.now()}-${batchIndex + 1}`;
-    console.log(`开始提交第 ${batchIndex + 1}/${batches.length} 批，共 ${batch.length} 条`);
-    const response = await requestJson({
-      url: `${resolvedBaseUrl}/api/v1/admin/market-questions/official/batch-upsert`,
-      method: "POST",
-      token: accessToken,
-      timeoutMs: options.timeoutMs,
-      body: {
-        batch_id: batchId,
-        questions: batch.map((item) => item.payload),
-      },
-    });
+  const totalCount = preparedRows.length;
+  const submitBatches = chunkArray(
+    preparedRows.map((sourceItem, itemIndex) => ({ sourceItem, itemIndex })),
+    options.submitConcurrency,
+  );
+  console.log(`submit 将按并发 ${options.submitConcurrency} 执行，共 ${submitBatches.length} 轮。`);
 
-    const responseItems = Array.isArray(response?.items) ? response.items : [];
-    const resultItemMap = buildBatchResultItemMap(responseItems);
-    for (let itemIndex = 0; itemIndex < batch.length; itemIndex += 1) {
-      const sourceItem = batch[itemIndex];
-      const matchedResultItem = consumeBatchResultItem(resultItemMap, sourceItem.officialQuestionId);
-      const fallbackMatch = matchedResultItem
-        ? null
-        : resolveFallbackBatchResultItem(batch, responseItems, sourceItem);
-      const resultItem = matchedResultItem || fallbackMatch?.resultItem || {};
-      const record = buildReportRecord(sourceItem);
-      if (
-        matchedResultItem == null
-        && fallbackMatch == null
-        && !resultItem.official_question_id
-      ) {
-        record.action = "failed";
-        record.import_error = "missing_batch_result";
-        record.import_message = `未在返回结果中找到 official_question_id=${sourceItem.officialQuestionId} 的导题结果。${summarizeBatchResultIds(responseItems)}`;
-      } else {
-        record.action = resultItem.action || "failed";
-        record.question_id = resultItem.question_id || null;
-        record.import_message = fallbackMatch?.importMessage || resultItem.message || null;
-        record.import_error = fallbackMatch?.importError || resultItem.error_code || null;
-        record.official_question_id = resultItem.official_question_id || record.official_question_id;
+  for (let batchIndex = 0; batchIndex < submitBatches.length; batchIndex += 1) {
+    const submitBatch = submitBatches[batchIndex];
+    console.log(`开始第 ${batchIndex + 1}/${submitBatches.length} 轮并发提交，共 ${submitBatch.length} 题`);
+    const records = await Promise.all(
+      submitBatch.map(({ sourceItem, itemIndex }) => submitSingleQuestion({
+        sourceItem,
+        itemIndex,
+        totalCount,
+        resolvedBaseUrl,
+        accessToken,
+        options,
+      })),
+    );
+
+    records.forEach((record) => {
+      updateSummaryByRecord(summary, record);
+      if (record.image_uploaded) {
+        summary.image_uploaded += 1;
+      } else if (record.image_file && record.image_message) {
+        summary.image_failed += 1;
       }
-
-      if (record.action === "inserted") {
-        summary.inserted += 1;
-      } else if (record.action === "updated") {
-        summary.updated += 1;
-      } else if (record.action === "skipped") {
-        summary.skipped += 1;
-      } else {
-        summary.failed += 1;
-      }
-
-      if (record.question_id && sourceItem.imageFileName && options.imagesDir) {
-        if (!(await ensureImagePath(sourceItem.imagePath))) {
-          summary.image_failed += 1;
-          record.image_message = `图片不存在：${sourceItem.imagePath}`;
-        } else {
-          try {
-            await uploadImage({
-              url: `${resolvedBaseUrl}/api/v1/admin/crawler-questions/${record.question_id}/image`,
-              token: accessToken,
-              imagePath: sourceItem.imagePath,
-              timeoutMs: options.timeoutMs,
-            });
-            summary.image_uploaded += 1;
-            record.image_uploaded = true;
-            record.image_message = "上传成功";
-          } catch (error) {
-            summary.image_failed += 1;
-            record.image_message = error.message;
-          }
-        }
-      }
-
       items.push(record);
-    }
+    });
   }
 
   return {
@@ -1303,6 +1385,8 @@ async function main() {
   console.log(`- 插入 ${report.summary.inserted} 条`);
   console.log(`- 更新 ${report.summary.updated} 条`);
   console.log(`- 跳过 ${report.summary.skipped} 条`);
+  console.log(`- 重复未提交 ${report.summary.duplicate} 条`);
+  console.log(`- 回执不完整 ${report.summary.receipt_incomplete} 条`);
   console.log(`- 失败 ${report.summary.failed} 条`);
   console.log(`- 图片上传成功 ${report.summary.image_uploaded} 条`);
   console.log(`- 图片上传失败 ${report.summary.image_failed} 条`);

@@ -20,16 +20,18 @@ Use this skill to run the official-question import workflow on top of a reusable
    4. Summarize the batch, environment, counts, and risks.
    5. Wait for an explicit confirmation like “确认提交”.
    6. Only then run `submit`.
-6. When the user uses fuzzy language like “最新一批”“今天那批”“市场热点那批”, resolve candidates with `scripts/resolve_batch.py`. If there are multiple plausible matches, ask a short follow-up instead of guessing.
-7. Default preview behavior is concise: show summary plus the bundled planner's default preview rows. In the current implementation, that means the first 10 rows. If the user asks for more detail than the default planner exposes, explain the current limit honestly and then inspect the batch files directly if needed.
-8. If the user explicitly asks to see only the first few rows or to see all rows, run `scripts/preview_batch_rows.py` or pass `--preview-limit / --preview-all` to `scripts/run_conversation_import.py`.
-9. When the user gives questions directly in conversation, first extract them into structured JSON, then run `scripts/run_conversation_import.py` so the flow can normalize payload, write workbook, validate, and plan in one pass.
-10. If direct conversational drafting is missing essential fields, ask the smallest possible follow-up. The minimum fields are described in `references/manual-text.md`.
-11. When the user only gives Chinese copy and clearly wants a preview batch quickly, you may draft provisional English copy for preview. Before any production submit, explicitly tell the user that the English copy was machine-drafted if they did not provide it.
-12. Submit prefers a locally saved ops-admin login state. If login is missing or expired, run `scripts/ensure_login.py`, ask the user for ops-admin email and password, let the script exchange them for a token, save only the resulting token locally, and then continue. If the user does not want to provide a password, fall back to pasted Bearer token mode.
-13. Treat the admin page URL and the `identity-service` URL as separate endpoints. Default to `https://admin.tmr.win/admin/questions/list` for the admin page and `https://tmr.win/identity-service` for auth APIs.
-14. When the user asks to “改口语一点”“像我自己写的”“改现有这批题”, do not ask them to rewrite each row manually. Export the current batch JSON, rewrite it in memory, preview a diff, and only then write it back.
-15. For binary prediction questions, prefer `rawResolutionRule + yesLabel + noLabel`. Generate them with `references/binary-label-generator-prompt.md`, review them with `references/binary-label-review-prompt.md`, and only then write them into the payload. If `yesLabel / noLabel` is present, the normalizer maps them into the first two workbook options automatically.
+6. `submit` currently uses 仅新增 semantics for official questions. Existing duplicates must be reported and skipped, not updated in place.
+7. When the user uses fuzzy language like “最新一批”“今天那批”“市场热点那批”, resolve candidates with `scripts/resolve_batch.py`. If there are multiple plausible matches, ask a short follow-up instead of guessing.
+8. Default preview behavior is concise: show summary plus the bundled planner's default preview rows. In the current implementation, that means the first 10 rows. If the user asks for more detail than the default planner exposes, explain the current limit honestly and then inspect the batch files directly if needed.
+9. If the user explicitly asks to see only the first few rows or to see all rows, run `scripts/preview_batch_rows.py` or pass `--preview-limit / --preview-all` to `scripts/run_conversation_import.py`.
+10. When the user gives questions directly in conversation, first extract them into structured JSON, then run `scripts/run_conversation_import.py` so the flow can normalize payload, write workbook, validate, and plan in one pass.
+11. If direct conversational drafting is missing essential fields, ask the smallest possible follow-up. The minimum fields are described in `references/manual-text.md`.
+12. When the user only gives Chinese copy and clearly wants a preview batch quickly, you may draft provisional English copy for preview. Before any production submit, explicitly tell the user that the English copy was machine-drafted if they did not provide it.
+13. Submit prefers a locally saved ops-admin login state. If login is missing or expired, run `scripts/ensure_login.py`, ask the user for ops-admin email and password, let the script exchange them for a token, save only the resulting token locally, and then continue. If the user does not want to provide a password, fall back to pasted Bearer token mode.
+14. Treat the admin page URL and the `identity-service` URL as separate endpoints. Default to `https://admin.tmr.win/admin/questions/list` for the admin page and `https://tmr.win/identity-service` for auth APIs.
+15. When the user asks to “改口语一点”“像我自己写的”“改现有这批题”, do not ask them to rewrite each row manually. Export the current batch JSON, rewrite it in memory, preview a diff, and only then write it back.
+16. For binary prediction questions, prefer `rawResolutionRule + yesLabel + noLabel`. Generate them with `references/binary-label-generator-prompt.md`, review them with `references/binary-label-review-prompt.md`, and only then write them into the payload. If `yesLabel / noLabel` is present, the normalizer maps them into the first two workbook options automatically.
+17. If submit returns an incomplete receipt for a question, stop at a clear report. Do not continue by scanning frontend bundles, reverse engineering admin APIs, or guessing whether the row already landed.
 
 ## Workspace Flow
 
@@ -101,6 +103,13 @@ python3 scripts/run_batch_action.py submit --workspace "~/Desktop/ops-import-too
 ```
 
 `submit` is protected by `--confirmed`. Do not pass it until the user has explicitly confirmed. The wrapper first checks the local saved login state; if no usable session exists, it returns a structured `credentials_required` result.
+
+Current submit semantics:
+
+- the runtime submits one question at a time for deterministic reporting
+- the runtime now runs single-question submit with limited concurrency for better speed while keeping per-question results deterministic
+- duplicate official questions are treated as `duplicate` and are not retried
+- `missing_batch_result` is reported as receipt incomplete; the skill should not continue with ad-hoc backend exploration unless the user explicitly asks for engineering debugging
 
 ### Ensure Login / Logout
 
@@ -187,6 +196,12 @@ Do not submit immediately. First summarize:
 - whether the batch appears to update existing items
 
 Then wait for a clear confirmation.
+
+When summarizing submit risk, state explicitly that production submit is 仅新增:
+
+- duplicates will be skipped and reported
+- non-duplicates will be created
+- this flow does not update existing official questions in place
 
 ### Direct conversational drafting
 
