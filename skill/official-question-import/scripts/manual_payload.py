@@ -21,6 +21,11 @@ FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "deadlineAt": ("deadlineAt", "deadline_at"),
     "candidateQuestionId": ("candidateQuestionId", "candidate_question_id"),
     "imageFileName": ("imageFileName", "image_file_name", "imageFile", "image_file"),
+    "rawResolutionRule": ("rawResolutionRule", "raw_resolution_rule", "resolutionRule", "resolution_rule"),
+    "yesLabel": ("yesLabel", "yes_label"),
+    "noLabel": ("noLabel", "no_label"),
+    "resolutionRuleNote": ("resolutionRuleNote", "resolution_rule_note"),
+    "labelReason": ("labelReason", "label_reason", "reason"),
 }
 
 OPTION_ALIASES: dict[str, tuple[str, ...]] = {
@@ -40,6 +45,17 @@ def normalize_text(value: Any) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
+def normalize_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return value != 0
+    text = normalize_text(value).lower()
+    return text in {"1", "true", "yes", "y"}
 
 
 def pick_value(source: dict[str, Any], aliases: tuple[str, ...]) -> str:
@@ -82,6 +98,36 @@ def normalize_option(raw_option: Any, question_index: int, option_index: int) ->
     return option
 
 
+def validate_binary_label_pair(
+    *,
+    yes_label: str,
+    no_label: str,
+    question_index: int,
+) -> None:
+    for label_name, label_value in (("yesLabel", yes_label), ("noLabel", no_label)):
+        if not label_value:
+            continue
+        if label_value.lower().startswith("resolves"):
+            raise ValueError(f"第 {question_index} 题的 {label_name} 不能以 Resolves 开头")
+        if len(label_value) > 52:
+            raise ValueError(f"第 {question_index} 题的 {label_name} 超过 52 个字符")
+
+
+def build_options_from_binary_labels(
+    *,
+    yes_label: str,
+    no_label: str,
+    question_index: int,
+) -> list[dict[str, str]]:
+    if not yes_label or not no_label:
+        raise ValueError(f"第 {question_index} 题的 yesLabel 和 noLabel 必须同时提供")
+    validate_binary_label_pair(yes_label=yes_label, no_label=no_label, question_index=question_index)
+    return [
+        {"label": yes_label, "labelEn": yes_label},
+        {"label": no_label, "labelEn": no_label},
+    ]
+
+
 def normalize_question(raw_question: Any, question_index: int) -> dict[str, Any]:
     if not isinstance(raw_question, dict):
         raise ValueError(f"第 {question_index} 题必须是对象")
@@ -96,6 +142,12 @@ def normalize_question(raw_question: Any, question_index: int) -> dict[str, Any]
         "scheduledPublishAt": pick_value(raw_question, FIELD_ALIASES["scheduledPublishAt"]),
         "candidateQuestionId": pick_value(raw_question, FIELD_ALIASES["candidateQuestionId"]),
         "imageFileName": pick_value(raw_question, FIELD_ALIASES["imageFileName"]),
+        "rawResolutionRule": pick_value(raw_question, FIELD_ALIASES["rawResolutionRule"]),
+        "yesLabel": pick_value(raw_question, FIELD_ALIASES["yesLabel"]),
+        "noLabel": pick_value(raw_question, FIELD_ALIASES["noLabel"]),
+        "resolutionRuleNote": pick_value(raw_question, FIELD_ALIASES["resolutionRuleNote"]),
+        "needsRuleReview": normalize_bool(raw_question.get("needsRuleReview")),
+        "labelReason": pick_value(raw_question, FIELD_ALIASES["labelReason"]),
         "options": [],
     }
 
@@ -106,14 +158,27 @@ def normalize_question(raw_question: Any, question_index: int) -> dict[str, Any]
     if not normalized["deadlineAt"]:
         raise ValueError(f"第 {question_index} 题缺少 deadlineAt")
 
-    raw_options = raw_question.get("options")
-    if not isinstance(raw_options, list) or len(raw_options) < 2:
-        raise ValueError(f"第 {question_index} 题至少需要 2 个 options")
+    if normalized["yesLabel"] or normalized["noLabel"]:
+        normalized["options"] = build_options_from_binary_labels(
+            yes_label=normalized["yesLabel"],
+            no_label=normalized["noLabel"],
+            question_index=question_index,
+        )
+    else:
+        raw_options = raw_question.get("options")
+        if not isinstance(raw_options, list) or len(raw_options) < 2:
+            raise ValueError(f"第 {question_index} 题至少需要 2 个 options，或提供 yesLabel / noLabel")
+        normalized["options"] = [
+            normalize_option(raw_option, question_index, option_index)
+            for option_index, raw_option in enumerate(raw_options, start=1)
+        ]
 
-    normalized["options"] = [
-        normalize_option(raw_option, question_index, option_index)
-        for option_index, raw_option in enumerate(raw_options, start=1)
-    ]
+    if normalized["yesLabel"] and normalized["noLabel"]:
+        validate_binary_label_pair(
+            yes_label=normalized["yesLabel"],
+            no_label=normalized["noLabel"],
+            question_index=question_index,
+        )
     return normalized
 
 

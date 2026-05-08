@@ -117,9 +117,18 @@ function parseQuestionFromExistingRow(headerRow, row) {
     options.push({ label, labelEn });
   }
 
+  const yesLabel = options[0]?.label || "";
+  const noLabel = options[1]?.label || "";
+
   return {
     title: normalizeText(record["题目"]),
     titleEn: normalizeText(record["英文题目"]),
+    rawResolutionRule: "",
+    yesLabel,
+    noLabel,
+    resolutionRuleNote: "",
+    needsRuleReview: false,
+    labelReason: "",
     category: normalizeText(record["分类"]),
     sourceUrl: normalizeText(record["问题来源地址"]),
     deadlineAt: normalizeText(record["截止时间"]),
@@ -194,6 +203,33 @@ function loadCandidatePayload(jsonFile) {
     throw new Error("候选 JSON 缺少 questions 数组");
   }
   return payload;
+}
+
+function buildEffectiveQuestion(question) {
+  const normalizedQuestion = question || {};
+  const yesLabel = normalizeText(normalizedQuestion.yesLabel);
+  const noLabel = normalizeText(normalizedQuestion.noLabel);
+  if (!yesLabel && !noLabel) {
+    return normalizedQuestion;
+  }
+  if (!yesLabel || !noLabel) {
+    return normalizedQuestion;
+  }
+  const rawOptions = Array.isArray(normalizedQuestion.options) ? normalizedQuestion.options : [];
+  const nextOptions = [
+    { label: yesLabel, labelEn: yesLabel },
+    { label: noLabel, labelEn: noLabel },
+  ];
+  for (const option of rawOptions.slice(2)) {
+    nextOptions.push({
+      label: normalizeText(option?.label),
+      labelEn: normalizeText(option?.labelEn),
+    });
+  }
+  return {
+    ...normalizedQuestion,
+    options: nextOptions,
+  };
 }
 
 function diffDefaults(beforeDefaults = {}, afterDefaults = {}) {
@@ -275,8 +311,8 @@ function buildQuestionDiffs(beforeQuestions, afterQuestions) {
   let addedCount = 0;
   let removedCount = 0;
   for (let index = 0; index < maxLength; index += 1) {
-    const beforeQuestion = beforeQuestions[index];
-    const afterQuestion = afterQuestions[index];
+    const beforeQuestion = buildEffectiveQuestion(beforeQuestions[index]);
+    const afterQuestion = buildEffectiveQuestion(afterQuestions[index]);
     if (!beforeQuestion && afterQuestion) {
       addedCount += 1;
       changes.push({

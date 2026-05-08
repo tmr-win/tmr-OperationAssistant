@@ -1,10 +1,10 @@
 # tmr-OperationAssistant
 
-`tmr-OperationAssistant` 是运营辅助 Skill 仓库。当前主能力是 `official-question-import`，用于让研发和运营通过 Agent 更快完成官方题导入、批量改稿、预览、校验与提交。
+`tmr-OperationAssistant` 是运营辅助 Skill 仓库。当前主能力是 `official-question-import`，用于让研发和运营通过 Agent 更快完成官方题导入、批量改稿、二元题 YES/NO 标签压缩、预览、校验与提交。
 
 当前仓库分成两层：
 
-- `official-question-import`：真正执行导题、批次改稿、预览、校验、提交和本地登录态鉴权的 runtime skill
+- `official-question-import`：真正执行导题、批次改稿、二元题标签生成、预览、校验、提交和本地登录态鉴权的 runtime skill
 - `official-question-import-bootstrap-skill`：安装、刷新并 handoff 到 runtime skill 的 bootstrap skill
 
 仓库已经预留后续扩展空间，未来如需接入爬虫相关能力，可以继续在这个仓库内追加新的 runtime skill 或 references，而不需要另起一套发布方式。

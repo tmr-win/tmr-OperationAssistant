@@ -89,9 +89,18 @@ function parseQuestionFromExistingRow(headerRow, row) {
     options.push({ label, labelEn });
   }
 
+  const yesLabel = options[0]?.label || "";
+  const noLabel = options[1]?.label || "";
+
   return {
     title: normalizeText(record["题目"]),
     titleEn: normalizeText(record["英文题目"]),
+    rawResolutionRule: "",
+    yesLabel,
+    noLabel,
+    resolutionRuleNote: "",
+    needsRuleReview: false,
+    labelReason: "",
     category: normalizeText(record["分类"]),
     sourceUrl: normalizeText(record["问题来源地址"]),
     deadlineAt: normalizeText(record["截止时间"]),

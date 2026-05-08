@@ -29,6 +29,7 @@ Use this skill to run the official-question import workflow on top of a reusable
 12. Submit prefers a locally saved ops-admin login state. If login is missing or expired, run `scripts/ensure_login.py`, ask the user for ops-admin email and password, let the script exchange them for a token, save only the resulting token locally, and then continue. If the user does not want to provide a password, fall back to pasted Bearer token mode.
 13. Treat the admin page URL and the `identity-service` URL as separate endpoints. Default to `https://admin.tmr.win/admin/questions/list` for the admin page and `https://tmr.win/identity-service` for auth APIs.
 14. When the user asks to “改口语一点”“像我自己写的”“改现有这批题”, do not ask them to rewrite each row manually. Export the current batch JSON, rewrite it in memory, preview a diff, and only then write it back.
+15. For binary prediction questions, prefer `rawResolutionRule + yesLabel + noLabel`. Generate them with `references/binary-label-generator-prompt.md`, review them with `references/binary-label-review-prompt.md`, and only then write them into the payload. If `yesLabel / noLabel` is present, the normalizer maps them into the first two workbook options automatically.
 
 ## Workspace Flow
 
@@ -200,6 +201,10 @@ Do this order:
 1. Normalize the request into the JSON shape defined in `references/manual-text.md`.
 2. Use `references/conversation-drafting.md` to decide shared defaults, follow-up threshold, and preview behavior.
 3. If key fields are missing, ask only the minimum follow-up needed to make the rows valid.
+If the question is binary and needs YES/NO labels:
+Use `references/binary-label-generator-prompt.md` with `title + rawResolutionRule`.
+Then apply `references/binary-label-review-prompt.md`.
+If the pair is still weak or the rule text is underspecified, keep `needsRuleReview: true`.
 4. Write the payload to a temporary JSON file.
 5. Run `scripts/run_conversation_import.py`.
 6. Show a concise summary by default.
@@ -219,6 +224,7 @@ Do this order:
 1. Resolve the target batch.
 2. Run `scripts/export_batch_to_json.py`.
 3. Rewrite the exported JSON in memory based on the user's instruction.
+For binary questions, regenerate or revise `yesLabel / noLabel` through the generator prompt first, then pass them through the review prompt.
 4. Run `scripts/preview_batch_diff.py`.
 5. Summarize the changed rows and changed fields.
 6. Wait for explicit confirmation before writing back.
@@ -246,6 +252,9 @@ Reserved for later:
 - `references/workflow.md`: end-to-end workflow, defaults, and expected user experience
 - `references/manual-text.md`: structured JSON shape and minimum fields for direct conversational drafting
 - `references/conversation-drafting.md`: extraction heuristics, follow-up rules, and preview policy for natural-language drafting
+- `references/binary-option-labels.md`: rules for generating short symmetric YES/NO labels from title + rule text
+- `references/binary-label-generator-prompt.md`: exact generator prompt for binary labels
+- `references/binary-label-review-prompt.md`: exact review gate prompt for binary labels
 - `references/confirmation-rules.md`: what must be confirmed before write actions
 - `references/batch-rewrite.md`: export / diff / rewrite workflow for modifying an existing batch
 - `references/crawler-extension.md`: reserved extension design for future crawler integration

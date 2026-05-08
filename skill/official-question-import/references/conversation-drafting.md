@@ -17,6 +17,9 @@ The Agent should turn conversation into a valid `manual_text` payload, write it 
 3. Then normalize each question:
    - `title`
    - `titleEn`
+   - `rawResolutionRule`
+   - `yesLabel`
+   - `noLabel`
    - `deadlineAt`
    - `options`
    - optional row-level overrides
@@ -33,8 +36,9 @@ Ask follow-up if any of these is missing:
 - `title`
 - `titleEn`
 - `deadlineAt`
-- fewer than 2 options
-- an option is missing `label` or `labelEn`
+- and neither:
+  - `yesLabel + noLabel`
+  - nor valid `options`
 
 ## Shared Defaults Rule
 
@@ -52,6 +56,18 @@ Examples:
 If the user only gives Chinese copy but clearly wants you to draft the batch for preview, you may draft provisional English title and English options for preview.
 
 Before any production submit, explicitly tell the user that English copy was machine-drafted if they did not provide it themselves.
+
+## Binary Label Rule
+
+For binary prediction questions:
+
+- prefer generating `yesLabel / noLabel` from `question_title + rawResolutionRule`
+- use `references/binary-label-generator-prompt.md` for generation
+- then use `references/binary-label-review-prompt.md` as the review gate
+- do not stuff source, exclusions, edge cases, or counting rules into the labels
+- put those boundaries into `resolutionRuleNote`
+- if the title alone is insufficient and no usable rule text is available, set `needsRuleReview: true`
+- if `yesLabel / noLabel` is present, the normalizer will write them back into the first two workbook options automatically
 
 ## Preview Rule
 

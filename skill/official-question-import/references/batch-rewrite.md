@@ -20,6 +20,7 @@ V1 focuses on batch editing for copy and obvious field fixes:
 - overall tone changes such as “更口语一点”“像个人写的”“少一点官方腔”
 - partial title / titleEn rewrites
 - option text / option English rewrites
+- binary `yesLabel / noLabel` rewrites
 - single-row field fixes such as deadline / source / category
 - whole-batch shared default updates
 
@@ -43,6 +44,8 @@ Rules:
 - preserve untouched fields
 - if only style is requested, do not silently modify deadlines or source URLs
 - if English copy is regenerated, mention that in the preview summary
+- for binary questions, prefer editing `yesLabel / noLabel` instead of manually editing `options`
+- for binary questions, regenerate labels with `references/binary-label-generator-prompt.md`, then pass them through `references/binary-label-review-prompt.md` before writing
 
 ### 3. Preview diff
 
