@@ -203,7 +203,7 @@ function buildOfficialQuestionId(title, generatedAt = new Date()) {
     .filter((part) => ["year", "month", "day"].includes(part.type))
     .map((part) => part.value)
     .join("");
-  const normalizedTitle = title.trim().toLowerCase().replace(/\s+/g, "-");
+  const normalizedTitle = String(title || "").trim().replace(/\s+/g, " ");
   const titleHash = createHash("sha1").update(normalizedTitle).digest("hex").slice(0, 12);
   return `official-${dateToken}-${titleHash}`;
 }
