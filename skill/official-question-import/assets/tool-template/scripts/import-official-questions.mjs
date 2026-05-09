@@ -192,15 +192,20 @@ function parseArgs(argv) {
   };
 }
 
-function buildOfficialQuestionId(deadlineAtIso, title) {
-  const deadline = new Date(deadlineAtIso);
-  const year = String(deadline.getUTCFullYear());
-  const month = String(deadline.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(deadline.getUTCDate()).padStart(2, "0");
-  const hour = String(deadline.getUTCHours()).padStart(2, "0");
+function buildOfficialQuestionId(title, generatedAt = new Date()) {
+  const dateParts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(generatedAt);
+  const dateToken = dateParts
+    .filter((part) => ["year", "month", "day"].includes(part.type))
+    .map((part) => part.value)
+    .join("");
   const normalizedTitle = title.trim().toLowerCase().replace(/\s+/g, "-");
   const titleHash = createHash("sha1").update(normalizedTitle).digest("hex").slice(0, 12);
-  return `official-${year}${month}${day}${hour}-${titleHash}`;
+  return `official-${dateToken}-${titleHash}`;
 }
 
 function resolveBaseUrl(baseUrl) {
@@ -795,8 +800,8 @@ async function buildPreparedRows(rows, options, defaults) {
       imageFileName,
       imagePath,
       options: optionsList,
-      officialQuestionId: deadlineAtIso && title
-        ? buildOfficialQuestionId(deadlineAtIso, title)
+      officialQuestionId: title
+        ? buildOfficialQuestionId(title)
         : "",
       payload: {
         candidate_question_id: candidateQuestionId || undefined,
@@ -1200,6 +1205,11 @@ async function submitSingleQuestion({
   options,
 }) {
   const batchId = `${options.batchIdPrefix}-${Date.now()}-${itemIndex + 1}`;
+  const requestOfficialQuestionId = buildOfficialQuestionId(sourceItem.title, new Date());
+  const requestSourceItem = {
+    ...sourceItem,
+    officialQuestionId: requestOfficialQuestionId,
+  };
   console.log(`开始提交第 ${itemIndex + 1}/${totalCount} 题：第 ${sourceItem.rowNumber} 行《${sourceItem.title}》`);
 
   try {
@@ -1217,13 +1227,13 @@ async function submitSingleQuestion({
     const responseItems = Array.isArray(response?.items) ? response.items : [];
     const matchedResultItem = consumeBatchResultItem(
       buildBatchResultItemMap(responseItems),
-      sourceItem.officialQuestionId,
+      requestSourceItem.officialQuestionId,
     );
     const fallbackMatch = matchedResultItem
       ? null
-      : resolveFallbackBatchResultItem([sourceItem], responseItems, sourceItem);
+      : resolveFallbackBatchResultItem([requestSourceItem], responseItems, requestSourceItem);
     const resultItem = matchedResultItem || fallbackMatch?.resultItem || null;
-    const record = normalizeSubmitRecord(resultItem, fallbackMatch, sourceItem, responseItems);
+    const record = normalizeSubmitRecord(resultItem, fallbackMatch, requestSourceItem, responseItems);
 
     if (record.question_id && sourceItem.imageFileName && options.imagesDir) {
       if (!(await ensureImagePath(sourceItem.imagePath))) {
@@ -1246,7 +1256,7 @@ async function submitSingleQuestion({
 
     return record;
   } catch (error) {
-    const record = buildReportRecord(sourceItem);
+    const record = buildReportRecord(requestSourceItem);
     record.action = "failed";
     record.import_error = "submit_request_failed";
     record.import_message = error instanceof Error ? error.message : String(error);
