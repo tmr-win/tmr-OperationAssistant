@@ -13,7 +13,7 @@ const INSTRUCTION_SHEET_NAME = "填写说明";
 const DEFAULT_REPORT_DIR = "reports/official-question-import";
 const MAX_BATCH_SIZE = 200;
 const DEFAULT_TIMEOUT_MS = 30_000;
-const DEFAULT_NAIVE_TIMEZONE_OFFSET = "+08:00";
+const DEFAULT_NAIVE_TIMEZONE = "America/New_York";
 const DEFAULT_OPS_ADMIN_BASE_URL = "https://admin.tmr.win/admin/questions/list";
 const DEFAULT_SUBMIT_CONCURRENCY = 6;
 const DUPLICATE_ERROR_CODES = new Set([
@@ -309,9 +309,9 @@ function buildTemplateWorkbook() {
     ["问题来源地址", "否", "留空时可继承默认值 sheet 的默认来源地址"],
     ["选项1 / 英文选项1", "是", "至少 2 个选项，且中英成对"],
     ["选项2 / 英文选项2", "是", "至少 2 个选项，且中英成对"],
-    ["截止时间", "是", "示例：2026-04-30 16:00"],
-    ["开奖时间", "否", "留空时可继承默认值 sheet 的默认开奖时间"],
-    ["定时发布时间", "否", "留空时可继承默认值 sheet 的默认定时发布时间"],
+    ["截止时间", "是", "示例：2026-04-30 16:00（默认按美东时间解释）"],
+    ["开奖时间", "否", "留空时可继承默认值 sheet 的默认开奖时间；未带时区按美东时间解释"],
+    ["定时发布时间", "否", "留空时可继承默认值 sheet 的默认定时发布时间；未带时区按美东时间解释"],
     ["候选题ID", "否", "如需直接采纳候选题，可填写候选题 UUID；填写后该行会按“采纳候选题”模式导入"],
     ["图片文件名", "否", "仅填写文件名，例如 btc-close-above-100k.png；提交时配合 --images-dir 指向图片目录"],
     [""],
@@ -329,6 +329,7 @@ function buildTemplateWorkbook() {
     ["默认开奖时间", "2026-05-01 10:00"],
     ["默认定时发布时间", "2026-04-28 10:00"],
     [""],
+    ["所有未带时区的时间都按美东时间（America/New_York）解释。", ""],
     ["也支持另一种写法：直接把表头写成“默认分类 / 默认开奖时间 / 默认定时发布时间 / 默认来源地址”，第二行填值。", ""],
   ]);
 
@@ -545,12 +546,55 @@ function parseDateTimeValue(value) {
     );
   if (matched) {
     const [, year, month, day, hour = "00", minute = "00", second = "00"] = matched;
-    return new Date(
-      `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:${String(second).padStart(2, "0")}${DEFAULT_NAIVE_TIMEZONE_OFFSET}`,
-    );
+    return buildDateInTimeZone({
+      year: Number(year),
+      month: Number(month),
+      day: Number(day),
+      hour: Number(hour),
+      minute: Number(minute),
+      second: Number(second),
+      timeZone: DEFAULT_NAIVE_TIMEZONE,
+    });
   }
 
   return new Date(normalized);
+}
+
+function buildDateInTimeZone({
+  year,
+  month,
+  day,
+  hour,
+  minute,
+  second,
+  timeZone,
+}) {
+  const initialUtcMillis = Date.UTC(year, month - 1, day, hour, minute, second);
+  let offsetMinutes = getTimeZoneOffsetMinutes(timeZone, new Date(initialUtcMillis));
+  let resolvedUtcMillis = initialUtcMillis - (offsetMinutes * 60 * 1000);
+  const refinedOffsetMinutes = getTimeZoneOffsetMinutes(timeZone, new Date(resolvedUtcMillis));
+  if (refinedOffsetMinutes !== offsetMinutes) {
+    offsetMinutes = refinedOffsetMinutes;
+    resolvedUtcMillis = initialUtcMillis - (offsetMinutes * 60 * 1000);
+  }
+  return new Date(resolvedUtcMillis);
+}
+
+function getTimeZoneOffsetMinutes(timeZone, date) {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    timeZoneName: "shortOffset",
+    hour: "2-digit",
+  });
+  const timeZonePart = formatter.formatToParts(date)
+    .find((part) => part.type === "timeZoneName")?.value || "";
+  const matched = timeZonePart.match(/^GMT([+\-])(\d{1,2})(?::?(\d{2}))?$/);
+  if (!matched) {
+    throw new Error(`无法解析时区偏移：${timeZonePart}`);
+  }
+  const [, sign, hours, minutes = "00"] = matched;
+  const totalMinutes = (Number(hours) * 60) + Number(minutes);
+  return sign === "-" ? -totalMinutes : totalMinutes;
 }
 
 function chunkArray(items, size) {
@@ -880,7 +924,7 @@ function printPlan(preparedRows, defaults) {
 
 function formatDisplayDateTime(isoString) {
   return new Intl.DateTimeFormat("zh-CN", {
-    timeZone: "Asia/Shanghai",
+    timeZone: DEFAULT_NAIVE_TIMEZONE,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",

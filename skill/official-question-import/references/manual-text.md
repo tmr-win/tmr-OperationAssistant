@@ -48,13 +48,21 @@ Use this reference when the user gives official questions directly in conversati
 
 Each question must have:
 
-- `title`
-- `titleEn`
+- at least one of:
+  - `title`
+  - `titleEn`
+
+The remaining fields may be auto-completed by the Agent workflow before workbook write, including:
+
+- the missing bilingual title
 - `deadlineAt`
+- `announceAt`
+- `scheduledPublishAt`
 - either:
   - `yesLabel` + `noLabel`
   - or at least 2 `options`
-- if using `options`, each option must have `label` and `labelEn`
+
+If using `options`, each option must have `label` and `labelEn`.
 
 ## Optional Fields
 
@@ -71,8 +79,17 @@ Each question must have:
 
 1. If the user gives multiple questions with shared attributes, prefer filling them into `defaults`.
 2. If the user omits a field that can safely inherit from `defaults`, do not ask again.
-3. If the user omits a field that is required for a valid row, ask the smallest possible follow-up.
-4. Keep the JSON normalized before writing it into the workbook. Do not write half-structured free text directly.
-5. If the user asks to continue adding questions into an existing batch, use append mode instead of replacing the workbook contents.
-6. For binary questions, prefer `rawResolutionRule + yesLabel + noLabel` over manually writing long YES/NO option text into `options`.
-7. If `yesLabel / noLabel` is present, the normalizer maps them into the first two workbook options automatically.
+3. If the user only gives a Chinese or English stem, auto-complete the missing bilingual title, binary options, and time fields before asking follow-up questions.
+4. All naive datetimes must be interpreted in `America/New_York`.
+5. If the question is sports-match based and the event time can be verified, usually set:
+   - `deadlineAt` around 1 hour before start
+   - `announceAt` around the expected end time
+6. If the question is non-sports and no exact public event time is available:
+   - `scheduledPublishAt` and `deadlineAt` must be at least 1 day apart
+   - `deadlineAt` and `announceAt` must be at least 2 hours apart
+   - longer windows are allowed and often preferred
+7. If the user omits a field that is still required after reasonable auto-completion, ask the smallest possible follow-up.
+8. Keep the JSON normalized before writing it into the workbook. Do not write half-structured free text directly.
+9. If the user asks to continue adding questions into an existing batch, use append mode instead of replacing the workbook contents.
+10. For binary questions, prefer `rawResolutionRule + yesLabel + noLabel` over manually writing long YES/NO option text into `options`.
+11. If `yesLabel / noLabel` is present, the normalizer maps them into the first two workbook options automatically.

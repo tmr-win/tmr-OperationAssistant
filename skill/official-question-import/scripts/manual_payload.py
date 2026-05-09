@@ -151,12 +151,8 @@ def normalize_question(raw_question: Any, question_index: int) -> dict[str, Any]
         "options": [],
     }
 
-    if not normalized["title"]:
-        raise ValueError(f"第 {question_index} 题缺少 title")
-    if not normalized["titleEn"]:
-        raise ValueError(f"第 {question_index} 题缺少 titleEn")
-    if not normalized["deadlineAt"]:
-        raise ValueError(f"第 {question_index} 题缺少 deadlineAt")
+    if not normalized["title"] and not normalized["titleEn"]:
+        raise ValueError(f"第 {question_index} 题至少需要提供 title 或 titleEn")
 
     if normalized["yesLabel"] or normalized["noLabel"]:
         normalized["options"] = build_options_from_binary_labels(
@@ -166,12 +162,11 @@ def normalize_question(raw_question: Any, question_index: int) -> dict[str, Any]
         )
     else:
         raw_options = raw_question.get("options")
-        if not isinstance(raw_options, list) or len(raw_options) < 2:
-            raise ValueError(f"第 {question_index} 题至少需要 2 个 options，或提供 yesLabel / noLabel")
-        normalized["options"] = [
-            normalize_option(raw_option, question_index, option_index)
-            for option_index, raw_option in enumerate(raw_options, start=1)
-        ]
+        if isinstance(raw_options, list) and len(raw_options) >= 2:
+            normalized["options"] = [
+                normalize_option(raw_option, question_index, option_index)
+                for option_index, raw_option in enumerate(raw_options, start=1)
+            ]
 
     if normalized["yesLabel"] and normalized["noLabel"]:
         validate_binary_label_pair(

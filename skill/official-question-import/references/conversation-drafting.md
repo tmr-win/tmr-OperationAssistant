@@ -23,9 +23,11 @@ The Agent should turn conversation into a valid `manual_text` payload, write it 
    - `deadlineAt`
    - `options`
    - optional row-level overrides
-4. Write the normalized payload to a temporary JSON file.
-5. Run `scripts/run_conversation_import.py`.
-6. If the user wants a custom preview slice, pass `--preview-limit N` or `--preview-all`.
+4. Auto-complete missing bilingual title, binary options, and time fields whenever possible.
+5. Treat all naive datetimes as `America/New_York`.
+6. Write the normalized payload to a temporary JSON file.
+7. Run `scripts/run_conversation_import.py`.
+8. If the user wants a custom preview slice, pass `--preview-limit N` or `--preview-all`.
 
 ## Minimum Follow-up Rule
 
@@ -33,12 +35,9 @@ Only ask follow-up questions when a row still cannot pass validation after reaso
 
 Ask follow-up if any of these is missing:
 
-- `title`
-- `titleEn`
-- `deadlineAt`
-- and neither:
-  - `yesLabel + noLabel`
-  - nor valid `options`
+- both `title` and `titleEn`
+- and the Agent still cannot safely infer a valid binary question shape
+- or the Agent cannot infer a reasonable time window after applying the default rules
 
 ## Shared Defaults Rule
 
@@ -68,6 +67,18 @@ For binary prediction questions:
 - put those boundaries into `resolutionRuleNote`
 - if the title alone is insufficient and no usable rule text is available, set `needsRuleReview: true`
 - if `yesLabel / noLabel` is present, the normalizer will write them back into the first two workbook options automatically
+
+## Time Inference Rule
+
+- Default timezone for generated or interpreted naive datetimes is `America/New_York`
+- If the question is sports-match based and the event time can be verified, usually set:
+  - `deadlineAt` around 1 hour before start
+  - `announceAt` around the expected end time
+- If the question is non-sports and no exact public event time is available:
+  - `scheduledPublishAt` and `deadlineAt` must be at least 1 day apart
+  - `deadlineAt` and `announceAt` must be at least 2 hours apart
+  - longer windows are allowed and often preferred
+- If the event time cannot be verified and the question obviously depends on a real-world schedule, say so in the preview summary instead of pretending certainty
 
 ## Preview Rule
 

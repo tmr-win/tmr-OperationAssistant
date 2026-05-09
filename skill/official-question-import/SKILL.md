@@ -24,14 +24,21 @@ Use this skill to run the official-question import workflow on top of a reusable
 7. When the user uses fuzzy language like “最新一批”“今天那批”“市场热点那批”, resolve candidates with `scripts/resolve_batch.py`. If there are multiple plausible matches, ask a short follow-up instead of guessing.
 8. Default preview behavior is concise: show summary plus the bundled planner's default preview rows. In the current implementation, that means the first 10 rows. If the user asks for more detail than the default planner exposes, explain the current limit honestly and then inspect the batch files directly if needed.
 9. If the user explicitly asks to see only the first few rows or to see all rows, run `scripts/preview_batch_rows.py` or pass `--preview-limit / --preview-all` to `scripts/run_conversation_import.py`.
-10. When the user gives questions directly in conversation, first extract them into structured JSON, then run `scripts/run_conversation_import.py` so the flow can normalize payload, write workbook, validate, and plan in one pass.
-11. If direct conversational drafting is missing essential fields, ask the smallest possible follow-up. The minimum fields are described in `references/manual-text.md`.
-12. When the user only gives Chinese copy and clearly wants a preview batch quickly, you may draft provisional English copy for preview. Before any production submit, explicitly tell the user that the English copy was machine-drafted if they did not provide it.
-13. Submit prefers a locally saved ops-admin login state. If login is missing or expired, run `scripts/ensure_login.py`, ask the user for ops-admin email and password, let the script exchange them for a token, save only the resulting token locally, and then continue. If the user does not want to provide a password, fall back to pasted Bearer token mode.
-14. Treat the admin page URL and the `identity-service` URL as separate endpoints. Default to `https://admin.tmr.win/admin/questions/list` for the admin page and `https://tmr.win/identity-service` for auth APIs.
-15. When the user asks to “改口语一点”“像我自己写的”“改现有这批题”, do not ask them to rewrite each row manually. Export the current batch JSON, rewrite it in memory, preview a diff, and only then write it back.
-16. For binary prediction questions, prefer `rawResolutionRule + yesLabel + noLabel`. Generate them with `references/binary-label-generator-prompt.md`, review them with `references/binary-label-review-prompt.md`, and only then write them into the payload. If `yesLabel / noLabel` is present, the normalizer maps them into the first two workbook options automatically.
-17. If submit returns an incomplete receipt for a question, stop at a clear report. Do not continue by scanning frontend bundles, reverse engineering admin APIs, or guessing whether the row already landed.
+10. When the user gives questions directly in conversation, first extract them into structured JSON, auto-complete missing fields when possible, then run `scripts/run_conversation_import.py` so the flow can normalize payload, write workbook, validate, and plan in one pass.
+11. For both conversation input and Excel/CSV input, the user may provide only `title` or only `titleEn`. The skill should auto-complete the missing language, binary options, and time fields before submit whenever the request is being handled through the Agent workflow.
+12. All naive datetimes in this skill are interpreted in `America/New_York`, including direct conversation drafting, workbook defaults, and row-level workbook values.
+13. If direct conversational drafting is still missing essential fields after reasonable auto-completion, ask the smallest possible follow-up. The minimum raw input is now a usable Chinese or English question stem.
+14. When the user only gives Chinese copy and clearly wants a preview batch quickly, you may draft provisional English copy for preview. Before any production submit, explicitly tell the user that the English copy was machine-drafted if they did not provide it.
+15. Submit prefers a locally saved ops-admin login state. If login is missing or expired, run `scripts/ensure_login.py`, ask the user for ops-admin email and password, let the script exchange them for a token, save only the resulting token locally, and then continue. If the user does not want to provide a password, fall back to pasted Bearer token mode.
+16. Treat the admin page URL and the `identity-service` URL as separate endpoints. Default to `https://admin.tmr.win/admin/questions/list` for the admin page and `https://tmr.win/identity-service` for auth APIs.
+17. When the user asks to “改口语一点”“像我自己写的”“改现有这批题”, do not ask them to rewrite each row manually. Export the current batch JSON, rewrite it in memory, preview a diff, and only then write it back.
+18. For binary prediction questions, prefer `rawResolutionRule + yesLabel + noLabel`. Generate them with `references/binary-label-generator-prompt.md`, review them with `references/binary-label-review-prompt.md`, and only then write them into the payload. If `yesLabel / noLabel` is present, the normalizer maps them into the first two workbook options automatically.
+19. If submit returns an incomplete receipt for a question, stop at a clear report. Do not continue by scanning frontend bundles, reverse engineering admin APIs, or guessing whether the row already landed.
+20. Time auto-completion rule:
+   1. If the question is clearly event-based and the event time can be verified, anchor deadline / scheduled publish / announce to that event in美东时间.
+   2. If the question is sports-match based, deadline should usually be about 1 hour before start time, and announce time should usually be around the expected end time.
+   3. If the question is non-sports and no exact public event time is available, scheduled publish and deadline must be at least 1 day apart, and deadline and announce time must be at least 2 hours apart.
+   4. These are minimums, not fixed templates; the skill should choose longer windows when the topic needs it.
 
 ## Workspace Flow
 
@@ -79,6 +86,7 @@ Use:
 
 ```bash
 python3 scripts/export_batch_to_json.py --workspace "~/Desktop/ops-import-tool" --query "今天那批" --output-json-file "/tmp/current-batch.json"
+python3 scripts/prepare_batch_completion.py --workspace "~/Desktop/ops-import-tool" --query "今天那批" --output-json-file "/tmp/stem-only-batch.json"
 python3 scripts/preview_batch_diff.py --workspace "~/Desktop/ops-import-tool" --query "今天那批" --json-file "/tmp/rewritten-batch.json"
 python3 scripts/preview_batch_diff.py --workspace "~/Desktop/ops-import-tool" --query "今天那批" --json-file "/tmp/rewritten-batch.json" --preview-all
 ```
@@ -86,6 +94,7 @@ python3 scripts/preview_batch_diff.py --workspace "~/Desktop/ops-import-tool" --
 Behavior:
 
 - `export_batch_to_json.py` exports the current batch workbook into the same JSON shape used by `manual_text`
+- `prepare_batch_completion.py` exports the current workbook JSON and summarizes which rows are still missing bilingual title / options / time fields, so the Agent can auto-complete them before writing back
 - the Agent should edit that JSON directly according to the user's rewrite intent
 - `preview_batch_diff.py` shows which rows and fields changed before any workbook write
 - after the user confirms the diff, apply the rewritten JSON with `scripts/run_conversation_import.py --query ... --mode replace`
@@ -110,6 +119,7 @@ Current submit semantics:
 - the runtime now runs single-question submit with limited concurrency for better speed while keeping per-question results deterministic
 - duplicate official questions are treated as `duplicate` and are not retried
 - `missing_batch_result` is reported as receipt incomplete; the skill should not continue with ad-hoc backend exploration unless the user explicitly asks for engineering debugging
+- all naive datetimes are interpreted in `America/New_York`
 
 ### Ensure Login / Logout
 
@@ -164,6 +174,7 @@ Behavior:
 - `--mode append` is for adding more questions into an existing batch
 - if the Agent needs only payload normalization, use `scripts/validate_manual_payload.py`
 - if the Agent needs workbook row preview after import, use `scripts/preview_batch_rows.py`
+- when the source is an Excel/CSV workbook with only stems filled in, the Agent should first interpret the rows into structured JSON, auto-complete the missing fields, then write the completed JSON back into the workbook before validate / plan / submit
 
 ## Suggested Interaction Pattern
 
@@ -215,15 +226,16 @@ Do this order:
 
 1. Normalize the request into the JSON shape defined in `references/manual-text.md`.
 2. Use `references/conversation-drafting.md` to decide shared defaults, follow-up threshold, and preview behavior.
-3. If key fields are missing, ask only the minimum follow-up needed to make the rows valid.
+3. If the user only provided a Chinese or English stem, auto-complete the missing language, binary options, and time fields first.
+4. If key fields are still missing after reasonable auto-completion, ask only the minimum follow-up needed to make the rows valid.
 If the question is binary and needs YES/NO labels:
 Use `references/binary-label-generator-prompt.md` with `title + rawResolutionRule`.
 Then apply `references/binary-label-review-prompt.md`.
 If the pair is still weak or the rule text is underspecified, keep `needsRuleReview: true`.
-4. Write the payload to a temporary JSON file.
-5. Run `scripts/run_conversation_import.py`.
-6. Show a concise summary by default.
-7. Only run `submit` after an explicit confirmation for the target environment.
+5. Write the payload to a temporary JSON file.
+6. Run `scripts/run_conversation_import.py`.
+7. Show a concise summary by default.
+8. Only run `submit` after an explicit confirmation for the target environment.
 
 ### Existing batch rewrite
 
@@ -256,6 +268,8 @@ Implemented now:
 - `manual_text` conversational drafting into `questions.xlsx`
 - payload normalization and validation for direct conversational drafting
 - validate / plan / submit wrappers around the existing import script
+- Excel/CSV and conversation input both interpret naive datetimes in `America/New_York`
+- direct input can now enter the workflow with only `title` or only `titleEn`, leaving room for Agent-side auto-completion
 
 Reserved for later:
 
