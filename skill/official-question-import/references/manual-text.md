@@ -89,9 +89,10 @@ If using `options`, each option must have `label` and `labelEn`.
    - `scheduledPublishAt` and `deadlineAt` must be at least 1 day apart
    - `deadlineAt` and `announceAt` must be at least 2 hours apart
    - longer windows are allowed and often preferred
-7. If the user omits a field that is still required after reasonable auto-completion, ask the smallest possible follow-up.
-8. Keep the JSON normalized before writing it into the workbook. Do not write half-structured free text directly.
-9. If the user asks to continue adding questions into an existing batch, use append mode instead of replacing the workbook contents.
-10. For binary questions, prefer `rawResolutionRule + yesLabel + noLabel` over manually writing long YES/NO option text into `options`.
-11. If `yesLabel / noLabel` is present, the normalizer maps them into the first two workbook options automatically.
-12. `scripts/complete_manual_payload.py` is the executable completion stage. It should try deterministic completion first, then optional structured LLM completion if credentials are configured, and fail clearly if essential fields remain unresolved.
+7. `scheduledPublishAt` should be treated as a suggested publish time for preview and planning. By default, production submit should not use it to auto-publish.
+8. If the user omits a field that is still required after reasonable auto-completion, ask the smallest possible follow-up.
+9. Keep the JSON normalized before writing it into the workbook. Do not write half-structured free text directly.
+10. If the user asks to continue adding questions into an existing batch, use append mode instead of replacing the workbook contents.
+11. For binary questions, prefer `rawResolutionRule + yesLabel + noLabel` over manually writing long YES/NO option text into `options`.
+12. If `yesLabel / noLabel` is present, the normalizer maps them into the first two workbook options automatically.
+13. `scripts/complete_manual_payload.py` is the executable completion stage. It should try deterministic completion first, then optional structured LLM completion if credentials are configured, and fail clearly if essential fields remain unresolved.

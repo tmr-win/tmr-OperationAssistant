@@ -65,3 +65,4 @@ For stem-only workbook completion:
 - Custom row preview is implemented through `scripts/preview_batch_rows.py`
 - The current skill still uses the existing import engine; it does not bypass validation or submit logic
 - All naive datetimes are interpreted in `America/New_York`
+- `scheduledPublishAt` is treated as a suggested publish time in the workbook and preview; production submit does not send it to backend by default, so actual publishing still requires manual action in admin

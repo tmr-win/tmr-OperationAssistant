@@ -68,7 +68,7 @@ function printUsage() {
   --default-source-url <值>          默认题目来源地址
   --default-announce-at <时间>       默认开奖时间，示例 2026-05-01 10:00
   --default-scheduled-publish-at <时间>
-                                    默认定时发布时间
+                                    默认建议发布时间（submit 默认不会写入后台）
   --batch-id-prefix <前缀>           提交时的 batch_id 前缀，默认 ops-import
   --submit-concurrency <数量>       submit 时并发提交题目数，默认 ${DEFAULT_SUBMIT_CONCURRENCY}
   --timeout-ms <毫秒>                请求超时，默认 ${DEFAULT_TIMEOUT_MS}
@@ -311,7 +311,7 @@ function buildTemplateWorkbook() {
     ["选项2 / 英文选项2", "是", "至少 2 个选项，且中英成对"],
     ["截止时间", "是", "示例：2026-04-30 16:00（默认按美东时间解释）"],
     ["开奖时间", "否", "留空时可继承默认值 sheet 的默认开奖时间；未带时区按美东时间解释"],
-    ["定时发布时间", "否", "留空时可继承默认值 sheet 的默认定时发布时间；未带时区按美东时间解释"],
+    ["定时发布时间", "否", "建议发布时间；留空时可继承默认值 sheet 的默认定时发布时间；submit 默认不会写入后台，仍需人工在后台确认后发布"],
     ["候选题ID", "否", "如需直接采纳候选题，可填写候选题 UUID；填写后该行会按“采纳候选题”模式导入"],
     ["图片文件名", "否", "仅填写文件名，例如 btc-close-above-100k.png；提交时配合 --images-dir 指向图片目录"],
     [""],
@@ -330,6 +330,7 @@ function buildTemplateWorkbook() {
     ["默认定时发布时间", "2026-04-28 10:00"],
     [""],
     ["所有未带时区的时间都按美东时间（America/New_York）解释。", ""],
+    ["注意：这里的“定时发布时间”仅作为建议值保存到表格与预览中；submit 默认不会把它写入后台发布流程。", ""],
     ["也支持另一种写法：直接把表头写成“默认分类 / 默认开奖时间 / 默认定时发布时间 / 默认来源地址”，第二行填值。", ""],
   ]);
 
@@ -855,7 +856,7 @@ async function buildPreparedRows(rows, options, defaults) {
         category,
         deadline_at: deadlineAtIso,
         announce_at: announceAtIso,
-        scheduled_publish_at: scheduledPublishAtIso || undefined,
+        scheduled_publish_at: undefined,
         options: optionsList.map((option, optionIndex) => ({
           key: String.fromCharCode(65 + optionIndex),
           label: option.label,
@@ -882,7 +883,7 @@ function printValidationSummary(preparedRows, validationErrors) {
   const imageCount = preparedRows.filter((item) => item.imageFileName).length;
   const candidateCount = preparedRows.filter((item) => item.candidateQuestionId).length;
   console.log(`共读取 ${preparedRows.length} 条题目`);
-  console.log(`- 定时发布：${scheduledCount} 条`);
+  console.log(`- 带建议发布时间：${scheduledCount} 条（submit 默认不会写入后台）`);
   console.log(`- 候选题采纳：${candidateCount} 条`);
   console.log(`- 声明图片：${imageCount} 条`);
   if (validationErrors.length === 0) {
@@ -906,7 +907,7 @@ function printPlan(preparedRows, defaults) {
     defaults.category ? `分类=${defaults.category}` : "",
     defaults.sourceUrl ? `来源地址=${defaults.sourceUrl}` : "",
     defaults.announceAt ? `开奖时间=${normalizeDateTimeInput(defaults.announceAt)}` : "",
-    defaults.scheduledPublishAt ? `定时发布时间=${normalizeDateTimeInput(defaults.scheduledPublishAt)}` : "",
+    defaults.scheduledPublishAt ? `建议发布时间=${normalizeDateTimeInput(defaults.scheduledPublishAt)}（submit 默认不会写入后台）` : "",
   ].filter(Boolean);
   if (defaultEntries.length > 0) {
     console.log(`默认值：${defaultEntries.join("；")}`);
@@ -915,8 +916,8 @@ function printPlan(preparedRows, defaults) {
   console.log("前 10 条预览：");
   preparedRows.slice(0, 10).forEach((item) => {
     const publishLabel = item.scheduledPublishAtIso
-      ? `定时发布 ${formatDisplayDateTime(item.scheduledPublishAtIso)}`
-      : "待发布";
+      ? `建议发布时间 ${formatDisplayDateTime(item.scheduledPublishAtIso)}（不会自动发布）`
+      : "待后台人工发布";
     const imageLabel = item.imageFileName ? `，图片 ${item.imageFileName}` : "";
     console.log(`- 第 ${item.rowNumber} 行《${item.title}》 / ${publishLabel}${imageLabel}`);
   });

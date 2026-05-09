@@ -40,6 +40,7 @@ Use this skill to run the official-question import workflow on top of a reusable
    3. If the question is non-sports and no exact public event time is available, scheduled publish and deadline must be at least 1 day apart, and deadline and announce time must be at least 2 hours apart.
    4. These are minimums, not fixed templates; the skill should choose longer windows when the topic needs it.
 21. `scripts/complete_manual_payload.py` uses deterministic rules first. If `OFFICIAL_QUESTION_IMPORT_LLM_API_KEY` or a compatible `OPENAI_API_KEY` / `ZHIPU_LLM_API_KEY` is configured, it then fills remaining gaps through structured LLM completion. If essential fields are still missing afterwards, the script must fail clearly instead of guessing.
+22. `scheduledPublishAt` in this skill is only a suggested publish time used for preview and workbook planning. Production `submit` must not send it to backend by default. Actual publishing still requires a manual confirmation action in the admin UI.
 
 ## Workspace Flow
 
@@ -122,6 +123,7 @@ Current submit semantics:
 - duplicate official questions are treated as `duplicate` and are not retried
 - `missing_batch_result` is reported as receipt incomplete; the skill should not continue with ad-hoc backend exploration unless the user explicitly asks for engineering debugging
 - all naive datetimes are interpreted in `America/New_York`
+- `scheduledPublishAt` is preview-only by default; production submit does not send `scheduled_publish_at` to backend
 
 ### Ensure Login / Logout
 
@@ -216,6 +218,7 @@ When summarizing submit risk, state explicitly that production submit is 仅新�
 - duplicates will be skipped and reported
 - non-duplicates will be created
 - this flow does not update existing official questions in place
+- even if the workbook contains `scheduledPublishAt`, production submit will not auto-publish; actual publish still needs backend manual confirmation
 
 ### Direct conversational drafting
 
