@@ -20,6 +20,7 @@ from manual_payload import FIELD_ALIASES, load_payload, normalize_payload, write
 
 AMERICA_NEW_YORK = ZoneInfo("America/New_York")
 DEFAULT_COMPLETION_MODEL = "gpt-4.1-mini"
+DEFAULT_EVENT_DAY_TIMEZONE = "America/New_York"
 OFFICIAL_CATEGORIES = (
     "政治",
     "体育",
@@ -159,6 +160,23 @@ TECH_KEYWORDS = {
     "发布",
     "科技",
 }
+WEATHER_KEYWORDS = {
+    "weather",
+    "temperature",
+    "forecast",
+    "rain",
+    "snow",
+    "sunny",
+    "cloudy",
+    "storm",
+    "天气",
+    "气温",
+    "温度",
+    "降雨",
+    "下雨",
+    "下雪",
+    "预报",
+}
 POP_CULTURE_KEYWORDS = {
     "movie",
     "film",
@@ -200,6 +218,32 @@ MONTH_TO_NUMBER = {
     "november": 11,
     "dec": 12,
     "december": 12,
+}
+LOCATION_TIMEZONE_ALIASES = {
+    "london": "Europe/London",
+    "伦敦": "Europe/London",
+    "new york": "America/New_York",
+    "纽约": "America/New_York",
+    "los angeles": "America/Los_Angeles",
+    "洛杉矶": "America/Los_Angeles",
+    "san francisco": "America/Los_Angeles",
+    "旧金山": "America/Los_Angeles",
+    "beijing": "Asia/Shanghai",
+    "北京": "Asia/Shanghai",
+    "shanghai": "Asia/Shanghai",
+    "上海": "Asia/Shanghai",
+    "hong kong": "Asia/Hong_Kong",
+    "香港": "Asia/Hong_Kong",
+    "tokyo": "Asia/Tokyo",
+    "东京": "Asia/Tokyo",
+    "singapore": "Asia/Singapore",
+    "新加坡": "Asia/Singapore",
+    "paris": "Europe/Paris",
+    "巴黎": "Europe/Paris",
+    "berlin": "Europe/Berlin",
+    "柏林": "Europe/Berlin",
+    "sydney": "Australia/Sydney",
+    "悉尼": "Australia/Sydney",
 }
 
 
@@ -262,6 +306,8 @@ def infer_category_from_text(*texts: str) -> str:
         return "体育"
     if any(keyword in joined for keyword in POLITICS_KEYWORDS):
         return "政治"
+    if any(keyword in joined for keyword in WEATHER_KEYWORDS):
+        return "科技"
     if any(keyword in joined for keyword in TECH_KEYWORDS):
         return "科技"
     if any(keyword in joined for keyword in POP_CULTURE_KEYWORDS):
@@ -363,6 +409,63 @@ def parse_window_from_titles(title: str, title_en: str) -> tuple[datetime, datet
         or parse_english_window(title)
         or parse_chinese_window(title)
         or parse_chinese_window(title_en)
+    )
+
+
+def detect_event_timezone(*texts: str) -> ZoneInfo:
+    combined = " ".join(texts).lower()
+    for alias, time_zone_name in LOCATION_TIMEZONE_ALIASES.items():
+        if alias in combined:
+            return ZoneInfo(time_zone_name)
+    return ZoneInfo(DEFAULT_EVENT_DAY_TIMEZONE)
+
+
+def parse_english_date_only(title: str) -> tuple[int, int, int] | None:
+    matched = re.search(
+        r"(?P<month>[A-Za-z]+)\s+(?P<day>\d{1,2})(?:,\s*(?P<year>\d{4}))?(?!\s*\d)",
+        title,
+        flags=re.IGNORECASE,
+    )
+    if not matched:
+        return None
+    month_token = matched.group("month").lower()
+    month = MONTH_TO_NUMBER.get(month_token)
+    if month is None:
+        return None
+    day = int(matched.group("day"))
+    year = int(matched.group("year") or now_in_new_york().year)
+    return year, month, day
+
+
+def parse_chinese_date_only(title: str) -> tuple[int, int, int] | None:
+    matched = re.search(r"(?:(?P<year>\d{4})年)?(?P<month>\d{1,2})月(?P<day>\d{1,2})(?:日|号)", title)
+    if not matched:
+        return None
+    year = int(matched.group("year") or now_in_new_york().year)
+    month = int(matched.group("month"))
+    day = int(matched.group("day"))
+    return year, month, day
+
+
+def parse_date_only_event(title: str, title_en: str) -> tuple[datetime, datetime, datetime] | None:
+    matched = (
+        parse_chinese_date_only(title)
+        or parse_english_date_only(title_en)
+        or parse_english_date_only(title)
+        or parse_chinese_date_only(title_en)
+    )
+    if matched is None:
+        return None
+    year, month, day = matched
+    event_time_zone = detect_event_timezone(title, title_en)
+    event_day_start = datetime(year, month, day, 0, 0, tzinfo=event_time_zone)
+    deadline_at = event_day_start - timedelta(hours=1)
+    announce_at = event_day_start + timedelta(days=1, hours=1)
+    scheduled_publish_at = default_publish_at(deadline_at.astimezone(AMERICA_NEW_YORK))
+    return (
+        deadline_at.astimezone(AMERICA_NEW_YORK),
+        announce_at.astimezone(AMERICA_NEW_YORK),
+        scheduled_publish_at.astimezone(AMERICA_NEW_YORK),
     )
 
 
@@ -518,6 +621,7 @@ def build_completion_prompt(questions: list[dict[str, Any]]) -> str:
                 "time_policy": [
                     "If an explicit event window is present in the title, use it.",
                     "For sports-like events with explicit start time, deadline is usually 1 hour before start and announce is around expected end time.",
+                    "If the question targets a specific calendar date without a precise time, deadline must be before that date begins in the event's local timezone. If no event timezone can be inferred, use America/New_York.",
                     "For non-sports questions without exact event time, scheduledPublishAt must be at least 1 day before deadlineAt, and announceAt at least 2 hours after deadlineAt.",
                     "Do not fabricate web-verified schedules. Only infer from the provided text.",
                 ],
@@ -634,6 +738,18 @@ def apply_deterministic_completion(question: dict[str, Any], defaults: dict[str,
         if not completed.get("scheduledPublishAt") and not defaults.get("scheduledPublishAt"):
             completed["scheduledPublishAt"] = format_local_datetime(default_publish_at(end_at))
             notes.append("根据时间窗口生成发布时间")
+
+    date_only_event = parse_date_only_event(title, title_en)
+    if date_only_event and not completed.get("deadlineAt"):
+        deadline_at, announce_at, scheduled_publish_at = date_only_event
+        completed["deadlineAt"] = format_local_datetime(deadline_at)
+        notes.append("根据日期型事件生成截止时间（目标日期开始前）")
+        if not completed.get("announceAt") and not defaults.get("announceAt"):
+            completed["announceAt"] = format_local_datetime(announce_at)
+            notes.append("根据日期型事件生成开奖时间")
+        if not completed.get("scheduledPublishAt") and not defaults.get("scheduledPublishAt"):
+            completed["scheduledPublishAt"] = format_local_datetime(scheduled_publish_at)
+            notes.append("根据日期型事件生成建议发布时间")
 
     threshold_pair = infer_yes_no_from_threshold(title_en or title)
     if threshold_pair and not completed.get("yesLabel") and not completed.get("noLabel") and not completed.get("options"):
