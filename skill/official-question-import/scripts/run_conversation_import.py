@@ -59,6 +59,17 @@ def build_ingest_command(args: argparse.Namespace, normalized_json_file: Path) -
     return command
 
 
+def build_complete_command(source_json_file: Path, completed_json_file: Path) -> list[str]:
+    return [
+        "python3",
+        str(Path(__file__).with_name("complete_manual_payload.py")),
+        "--json-file",
+        str(source_json_file),
+        "--output-json-file",
+        str(completed_json_file),
+    ]
+
+
 def build_batch_action_command(action: str, workspace: str, batch_name: str) -> list[str]:
     return [
         "python3",
@@ -100,13 +111,30 @@ def main() -> int:
         return 1
 
     with tempfile.TemporaryDirectory(prefix="official-question-import-") as temp_dir:
+        completed_json_file = Path(temp_dir) / "completed-manual-questions.json"
         normalized_json_file = Path(temp_dir) / "normalized-manual-questions.json"
         saved_normalized_json_file = ""
+        complete_command = build_complete_command(source_json_file, completed_json_file)
+        complete_rc, complete_payload, complete_stdout, complete_stderr = run_command(complete_command)
+        if complete_rc != 0:
+            print_json(
+                {
+                    "status": "error",
+                    "step": "complete_manual_payload",
+                    "command": complete_command,
+                    "returncode": complete_rc,
+                    "payload": complete_payload,
+                    "stdout": complete_stdout,
+                    "stderr": complete_stderr,
+                }
+            )
+            return complete_rc
+
         validate_command = [
             "python3",
             str(Path(__file__).with_name("validate_manual_payload.py")),
             "--json-file",
-            str(source_json_file),
+            str(completed_json_file),
             "--output-json-file",
             str(normalized_json_file),
         ]
@@ -171,6 +199,7 @@ def main() -> int:
                         "workspace": workspace,
                         "batch_name": batch_name,
                         "saved_normalized_json_file": saved_normalized_json_file,
+                        "complete": complete_payload,
                         "normalize": validate_payload,
                         "ingest": ingest_payload,
                         "actions": action_results,
@@ -202,6 +231,7 @@ def main() -> int:
                         "workspace": workspace,
                         "batch_name": batch_name,
                         "saved_normalized_json_file": saved_normalized_json_file,
+                        "complete": complete_payload,
                         "normalize": validate_payload,
                         "ingest": ingest_payload,
                         "actions": action_results,
@@ -216,6 +246,7 @@ def main() -> int:
                 "workspace": workspace,
                 "batch_name": batch_name,
                 "saved_normalized_json_file": saved_normalized_json_file,
+                "complete": complete_payload,
                 "normalize": validate_payload,
                 "ingest": ingest_payload,
                 "actions": action_results,

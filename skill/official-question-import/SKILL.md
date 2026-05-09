@@ -24,7 +24,7 @@ Use this skill to run the official-question import workflow on top of a reusable
 7. When the user uses fuzzy language like “最新一批”“今天那批”“市场热点那批”, resolve candidates with `scripts/resolve_batch.py`. If there are multiple plausible matches, ask a short follow-up instead of guessing.
 8. Default preview behavior is concise: show summary plus the bundled planner's default preview rows. In the current implementation, that means the first 10 rows. If the user asks for more detail than the default planner exposes, explain the current limit honestly and then inspect the batch files directly if needed.
 9. If the user explicitly asks to see only the first few rows or to see all rows, run `scripts/preview_batch_rows.py` or pass `--preview-limit / --preview-all` to `scripts/run_conversation_import.py`.
-10. When the user gives questions directly in conversation, first extract them into structured JSON, auto-complete missing fields when possible, then run `scripts/run_conversation_import.py` so the flow can normalize payload, write workbook, validate, and plan in one pass.
+10. When the user gives questions directly in conversation, first extract them into structured JSON, then run `scripts/run_conversation_import.py`. That wrapper now executes `scripts/complete_manual_payload.py` before validate / ingest, so the auto-completion step is a real workflow stage rather than a documentation-only suggestion.
 11. For both conversation input and Excel/CSV input, the user may provide only `title` or only `titleEn`. The skill should auto-complete the missing language, binary options, and time fields before submit whenever the request is being handled through the Agent workflow.
 12. All naive datetimes in this skill are interpreted in `America/New_York`, including direct conversation drafting, workbook defaults, and row-level workbook values.
 13. If direct conversational drafting is still missing essential fields after reasonable auto-completion, ask the smallest possible follow-up. The minimum raw input is now a usable Chinese or English question stem.
@@ -39,6 +39,7 @@ Use this skill to run the official-question import workflow on top of a reusable
    2. If the question is sports-match based, deadline should usually be about 1 hour before start time, and announce time should usually be around the expected end time.
    3. If the question is non-sports and no exact public event time is available, scheduled publish and deadline must be at least 1 day apart, and deadline and announce time must be at least 2 hours apart.
    4. These are minimums, not fixed templates; the skill should choose longer windows when the topic needs it.
+21. `scripts/complete_manual_payload.py` uses deterministic rules first. If `OFFICIAL_QUESTION_IMPORT_LLM_API_KEY` or a compatible `OPENAI_API_KEY` / `ZHIPU_LLM_API_KEY` is configured, it then fills remaining gaps through structured LLM completion. If essential fields are still missing afterwards, the script must fail clearly instead of guessing.
 
 ## Workspace Flow
 
@@ -95,6 +96,7 @@ Behavior:
 
 - `export_batch_to_json.py` exports the current batch workbook into the same JSON shape used by `manual_text`
 - `prepare_batch_completion.py` exports the current workbook JSON and summarizes which rows are still missing bilingual title / options / time fields, so the Agent can auto-complete them before writing back
+- `complete_manual_payload.py` is the executable completion stage for conversation drafting and stem-only workbook completion
 - the Agent should edit that JSON directly according to the user's rewrite intent
 - `preview_batch_diff.py` shows which rows and fields changed before any workbook write
 - after the user confirms the diff, apply the rewritten JSON with `scripts/run_conversation_import.py --query ... --mode replace`
@@ -174,6 +176,7 @@ Behavior:
 - `--mode append` is for adding more questions into an existing batch
 - if the Agent needs only payload normalization, use `scripts/validate_manual_payload.py`
 - if the Agent needs workbook row preview after import, use `scripts/preview_batch_rows.py`
+- `scripts/run_conversation_import.py` now runs `scripts/complete_manual_payload.py` first, then validate / ingest / plan
 - when the source is an Excel/CSV workbook with only stems filled in, the Agent should first interpret the rows into structured JSON, auto-complete the missing fields, then write the completed JSON back into the workbook before validate / plan / submit
 
 ## Suggested Interaction Pattern
@@ -226,7 +229,7 @@ Do this order:
 
 1. Normalize the request into the JSON shape defined in `references/manual-text.md`.
 2. Use `references/conversation-drafting.md` to decide shared defaults, follow-up threshold, and preview behavior.
-3. If the user only provided a Chinese or English stem, auto-complete the missing language, binary options, and time fields first.
+3. If the user only provided a Chinese or English stem, auto-complete the missing language, binary options, category, and time fields first through `scripts/complete_manual_payload.py`.
 4. If key fields are still missing after reasonable auto-completion, ask only the minimum follow-up needed to make the rows valid.
 If the question is binary and needs YES/NO labels:
 Use `references/binary-label-generator-prompt.md` with `title + rawResolutionRule`.
@@ -270,6 +273,7 @@ Implemented now:
 - validate / plan / submit wrappers around the existing import script
 - Excel/CSV and conversation input both interpret naive datetimes in `America/New_York`
 - direct input can now enter the workflow with only `title` or only `titleEn`, leaving room for Agent-side auto-completion
+- `scripts/complete_manual_payload.py` is now wired into the conversation import wrapper, so missing-field completion is no longer only a prompt convention
 
 Reserved for later:
 

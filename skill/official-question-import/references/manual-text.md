@@ -55,6 +55,7 @@ Each question must have:
 The remaining fields may be auto-completed by the Agent workflow before workbook write, including:
 
 - the missing bilingual title
+- `category`
 - `deadlineAt`
 - `announceAt`
 - `scheduledPublishAt`
@@ -79,7 +80,7 @@ If using `options`, each option must have `label` and `labelEn`.
 
 1. If the user gives multiple questions with shared attributes, prefer filling them into `defaults`.
 2. If the user omits a field that can safely inherit from `defaults`, do not ask again.
-3. If the user only gives a Chinese or English stem, auto-complete the missing bilingual title, binary options, and time fields before asking follow-up questions.
+3. If the user only gives a Chinese or English stem, auto-complete the missing bilingual title, category, binary options, and time fields before asking follow-up questions.
 4. All naive datetimes must be interpreted in `America/New_York`.
 5. If the question is sports-match based and the event time can be verified, usually set:
    - `deadlineAt` around 1 hour before start
@@ -93,3 +94,4 @@ If using `options`, each option must have `label` and `labelEn`.
 9. If the user asks to continue adding questions into an existing batch, use append mode instead of replacing the workbook contents.
 10. For binary questions, prefer `rawResolutionRule + yesLabel + noLabel` over manually writing long YES/NO option text into `options`.
 11. If `yesLabel / noLabel` is present, the normalizer maps them into the first two workbook options automatically.
+12. `scripts/complete_manual_payload.py` is the executable completion stage. It should try deterministic completion first, then optional structured LLM completion if credentials are configured, and fail clearly if essential fields remain unresolved.

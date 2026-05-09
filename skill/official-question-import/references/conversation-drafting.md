@@ -23,11 +23,12 @@ The Agent should turn conversation into a valid `manual_text` payload, write it 
    - `deadlineAt`
    - `options`
    - optional row-level overrides
-4. Auto-complete missing bilingual title, binary options, and time fields whenever possible.
+4. Auto-complete missing bilingual title, binary options, category, and time fields whenever possible.
 5. Treat all naive datetimes as `America/New_York`.
 6. Write the normalized payload to a temporary JSON file.
-7. Run `scripts/run_conversation_import.py`.
-8. If the user wants a custom preview slice, pass `--preview-limit N` or `--preview-all`.
+7. Run `scripts/complete_manual_payload.py` if the payload still has missing fields.
+8. Run `scripts/run_conversation_import.py`.
+9. If the user wants a custom preview slice, pass `--preview-limit N` or `--preview-all`.
 
 ## Minimum Follow-up Rule
 
@@ -79,6 +80,7 @@ For binary prediction questions:
   - `deadlineAt` and `announceAt` must be at least 2 hours apart
   - longer windows are allowed and often preferred
 - If the event time cannot be verified and the question obviously depends on a real-world schedule, say so in the preview summary instead of pretending certainty
+- `scripts/complete_manual_payload.py` should fail clearly when essential fields remain unresolved; do not continue with guessed placeholders
 
 ## Preview Rule
 

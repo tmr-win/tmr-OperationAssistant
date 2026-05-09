@@ -6,7 +6,7 @@ Current implemented workflow:
 
 1. Initialize or locate a workspace
 2. Create or resolve a batch
-3. If the user gives questions in conversation, or provides an Excel/CSV with only stems filled in, normalize them into JSON, auto-complete missing bilingual title / binary options / time fields, and run `scripts/run_conversation_import.py`
+3. If the user gives questions in conversation, or provides an Excel/CSV with only stems filled in, normalize them into JSON, auto-complete missing bilingual title / binary options / category / time fields, and run `scripts/run_conversation_import.py`
 4. Review the validation result
 5. Review the plan output
 6. Confirm before submit
@@ -26,8 +26,9 @@ For stem-only workbook completion:
 1. Resolve the target batch
 2. Run `scripts/prepare_batch_completion.py`
 3. Let the Agent complete missing bilingual title / options / time fields in the exported JSON
-4. Write the completed JSON back with `scripts/run_conversation_import.py --query ... --mode replace`
-5. Re-run validate and plan
+4. Run `scripts/complete_manual_payload.py` on that JSON if it still has missing fields
+5. Write the completed JSON back with `scripts/run_conversation_import.py --query ... --mode replace`
+6. Re-run validate and plan
 
 ## Default Workspace
 
@@ -60,7 +61,7 @@ For stem-only workbook completion:
 ## Manual Text Drafting
 
 - Direct conversational drafting is now implemented through `scripts/run_conversation_import.py`
-- The write path is `conversation or stem-only workbook -> structured JSON -> auto-complete missing fields -> payload normalize -> questions.xlsx -> validate -> plan -> submit`
+- The write path is `conversation or stem-only workbook -> structured JSON -> complete_manual_payload.py -> payload normalize -> questions.xlsx -> validate -> plan -> submit`
 - Custom row preview is implemented through `scripts/preview_batch_rows.py`
 - The current skill still uses the existing import engine; it does not bypass validation or submit logic
 - All naive datetimes are interpreted in `America/New_York`
